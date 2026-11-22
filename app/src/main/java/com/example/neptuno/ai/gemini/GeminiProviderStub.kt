@@ -21,7 +21,7 @@ interface GeminiLiveSessionContract {
 
 class GeminiPendingProvider : AiProvider {
     override val id: String = "gemini_live_pending"
-    override val displayName: String = "Gemini / Gemini Live"
+    override val displayName: String = "Gemini Live (Audio bidireccional · Pendiente)"
     override val capabilities: AiProviderCapabilities = AiProviderCapabilities(
         supportsStreamingText = true,
         supportsBidirectionalAudio = true,
@@ -34,12 +34,12 @@ class GeminiPendingProvider : AiProvider {
         emit(
             AiResponseEvent.IntegrationPending(
                 providerName = displayName,
-                message = "Integración de proveedor de IA pendiente. Tu mensaje se ha guardado localmente en Room, pero aún no hay ningún motor Gemini conectado para generar respuestas."
+                message = "La sesión en tiempo real de Gemini Live (audio bidireccional WebSocket) está pendiente de implementación. Selecciona 'Gemini (Texto y Streaming)' en Ajustes para conversar con Gemini usando el sistema de voz (STT + TTS)."
             )
         )
     }
 
     override suspend fun interruptActiveResponse() {
-        // Sin sesión activa en la v1; listo para cancelar flujos reales en Fase 2.
+        // Sin sesión en tiempo real activa en esta fase.
     }
 }

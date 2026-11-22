@@ -133,10 +133,26 @@ fun SettingsScreen(
                                         text = provider.displayName,
                                         style = MaterialTheme.typography.titleSmall
                                     )
+                                    val statusText = when (val st = provider.status) {
+                                        is com.example.neptuno.core.model.AiProviderStatus.Ready ->
+                                            if (provider.capabilities.supportsBidirectionalAudio) {
+                                                "Estado: Operativo · Audio bidireccional"
+                                            } else {
+                                                "Estado: Operativo · Streaming de texto"
+                                            }
+                                        is com.example.neptuno.core.model.AiProviderStatus.PendingIntegration ->
+                                            "Estado: Integración pendiente"
+                                        is com.example.neptuno.core.model.AiProviderStatus.Unavailable ->
+                                            "No disponible: ${st.reason}"
+                                    }
                                     Text(
-                                        text = "Estado: Integración pendiente",
+                                        text = statusText,
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = if (provider.status is com.example.neptuno.core.model.AiProviderStatus.Ready) {
+                                            MaterialTheme.colorScheme.secondary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
                                     )
                                 }
                                 if (selected) {
@@ -155,6 +171,14 @@ fun SettingsScreen(
             // Preferencias de audio
             item {
                 SettingsSectionCard(title = stringResource(R.string.settings_audio)) {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.settings_auto_speak),
+                        description = stringResource(R.string.settings_auto_speak_desc),
+                        checked = prefs.autoSpeakResponses,
+                        onCheckedChange = viewModel::setAutoSpeakResponses,
+                        testTag = "settings_auto_speak_switch"
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     SettingsSwitchRow(
                         title = stringResource(R.string.settings_barge_in),
                         description = stringResource(R.string.settings_barge_in_desc),
@@ -232,11 +256,12 @@ fun SettingsScreen(
             // Información de la aplicación
             item {
                 SettingsSectionCard(title = stringResource(R.string.settings_about)) {
-                    AboutInfoRow("Aplicación", "NEPTUNO · Fase 1 (Base Nativa)")
+                    AboutInfoRow("Aplicación", "NEPTUNO · Fase 2 (Voz STT/TTS y Gemini)")
                     AboutInfoRow("Versión", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                     AboutInfoRow("Compatibilidad", "Android 10+ (API 29) · Actual API ${Build.VERSION.SDK_INT}")
                     AboutInfoRow("Almacenamiento", "Room SQLite + Jetpack DataStore")
-                    AboutInfoRow("Motor de IA", "Arquitectura desacoplada (integración pendiente)")
+                    AboutInfoRow("Voz", "Android SpeechRecognizer + TextToSpeech")
+                    AboutInfoRow("Motor de IA", "Firebase AI Logic + contratos extensibles")
                 }
             }
         }

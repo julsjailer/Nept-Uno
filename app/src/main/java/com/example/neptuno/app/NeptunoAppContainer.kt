@@ -2,11 +2,22 @@ package com.example.neptuno.app
 
 import android.content.Context
 import com.example.neptuno.ai.api.AiProviderRegistry
+import com.example.neptuno.ai.gemini.GeminiFirebaseProvider
 import com.example.neptuno.ai.gemini.GeminiPendingProvider
 import com.example.neptuno.ai.local.LocalEnginePendingProvider
 import com.example.neptuno.android.services.BluetoothDeviceController
+import com.example.neptuno.audio.engine.AndroidAudioCaptureEngine
+import com.example.neptuno.audio.engine.AndroidAudioPlaybackEngine
 import com.example.neptuno.audio.engine.AndroidAudioRouteManager
+import com.example.neptuno.audio.engine.AndroidSpeechToTextEngine
+import com.example.neptuno.audio.engine.AndroidTextToSpeechEngine
+import com.example.neptuno.audio.engine.AudioCaptureEngine
+import com.example.neptuno.audio.engine.AudioPlaybackEngine
+import com.example.neptuno.audio.engine.AudioRoutingController
 import com.example.neptuno.audio.engine.BidirectionalAudioCoordinator
+import com.example.neptuno.audio.engine.PendingAudioRoutingController
+import com.example.neptuno.audio.engine.SpeechToTextEngine
+import com.example.neptuno.audio.engine.TextToSpeechEngine
 import com.example.neptuno.core.DefaultDispatcherProvider
 import com.example.neptuno.core.DispatcherProvider
 import com.example.neptuno.core.NetworkMonitor
@@ -22,7 +33,7 @@ import com.example.neptuno.voice.wake.WakeWordEngine
 
 /**
  * Contenedor manual de dependencias de NEPTUNO.
- * Centraliza la creación de repositorios, controladores del sistema y contratos de futuras integraciones.
+ * Centraliza repositorios, motores reales de voz (STT/TTS), audio PCM, controladores del sistema y proveedores de IA.
  */
 class NeptunoAppContainer(context: Context) {
 
@@ -63,8 +74,24 @@ class NeptunoAppContainer(context: Context) {
         AndroidAudioRouteManager(appContext)
     }
 
-    val audioRoutingController: com.example.neptuno.audio.engine.AudioRoutingController by lazy {
-        com.example.neptuno.audio.engine.PendingAudioRoutingController()
+    val audioRoutingController: AudioRoutingController by lazy {
+        PendingAudioRoutingController()
+    }
+
+    val audioCaptureEngine: AudioCaptureEngine by lazy {
+        AndroidAudioCaptureEngine(appContext)
+    }
+
+    val audioPlaybackEngine: AudioPlaybackEngine by lazy {
+        AndroidAudioPlaybackEngine()
+    }
+
+    val speechToTextEngine: SpeechToTextEngine by lazy {
+        AndroidSpeechToTextEngine(appContext)
+    }
+
+    val textToSpeechEngine: TextToSpeechEngine by lazy {
+        AndroidTextToSpeechEngine(appContext)
     }
 
     val audioCoordinator: BidirectionalAudioCoordinator by lazy {
@@ -74,6 +101,7 @@ class NeptunoAppContainer(context: Context) {
     val aiProviderRegistry: AiProviderRegistry by lazy {
         AiProviderRegistry(
             providers = listOf(
+                GeminiFirebaseProvider(),
                 GeminiPendingProvider(),
                 LocalEnginePendingProvider()
             )
@@ -86,5 +114,12 @@ class NeptunoAppContainer(context: Context) {
 
     val toolRegistry: ToolRegistry by lazy {
         ToolRegistry()
+    }
+
+    fun releaseAudioEngines() {
+        speechToTextEngine.release()
+        textToSpeechEngine.release()
+        audioCaptureEngine.release()
+        audioPlaybackEngine.release()
     }
 }

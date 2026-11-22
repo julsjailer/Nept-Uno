@@ -18,12 +18,12 @@ data class NetworkStatus(
 /**
  * Monitor real de conectividad a Internet basado en ConnectivityManager (Android 10+ / API 29+).
  */
-class NetworkMonitor(context: Context) {
+open class NetworkMonitor(context: Context) {
 
     private val connectivityManager =
         context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
-    fun observeNetworkStatus(): Flow<NetworkStatus> = callbackFlow {
+    open fun observeNetworkStatus(): Flow<NetworkStatus> = callbackFlow {
         val manager = connectivityManager
         if (manager == null) {
             trySend(NetworkStatus(isConnected = false, transportLabel = "Sin servicio de red"))

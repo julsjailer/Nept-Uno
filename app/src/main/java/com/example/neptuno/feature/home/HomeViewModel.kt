@@ -24,7 +24,8 @@ data class HomeUiState(
     val networkStatus: NetworkStatus = NetworkStatus(false, "Verificando…"),
     val offlineModeForced: Boolean = false,
     val bluetoothState: BluetoothAdapterState = BluetoothAdapterState.OFF,
-    val activeProviderName: String = "Gemini / Gemini Live",
+    val activeProviderName: String = "Gemini (Texto y Streaming)",
+    val isProviderReady: Boolean = true,
     val memoryCount: Int = 0,
     val conversationCount: Int = 0
 )
@@ -54,6 +55,7 @@ class HomeViewModel(
             offlineModeForced = prefs.offlineMode,
             bluetoothState = btState,
             activeProviderName = provider.displayName,
+            isProviderReady = provider.status is com.example.neptuno.core.model.AiProviderStatus.Ready,
             memoryCount = memories.size,
             conversationCount = conversations.size
         )

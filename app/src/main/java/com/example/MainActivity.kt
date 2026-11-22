@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.neptuno.ai.gemini.configureAppCheck
 import com.example.neptuno.app.NeptunoAppShell
 import com.example.neptuno.app.NeptunoApplication
 import com.example.neptuno.core.model.ThemeMode
@@ -16,6 +17,7 @@ import com.example.ui.theme.NeptunoTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        configureAppCheck(this, intent)
         enableEdgeToEdge()
 
         val container = (application as NeptunoApplication).appContainer
@@ -34,5 +36,12 @@ class MainActivity : ComponentActivity() {
                 NeptunoAppShell(container = container)
             }
         }
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) {
+            (application as? NeptunoApplication)?.appContainer?.releaseAudioEngines()
+        }
+        super.onDestroy()
     }
 }

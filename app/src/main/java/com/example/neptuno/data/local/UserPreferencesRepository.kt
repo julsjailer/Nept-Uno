@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -33,6 +34,10 @@ class UserPreferencesRepository(context: Context) {
 
     private object Keys {
         val SELECTED_VOICE_ID = stringPreferencesKey("selected_voice_id")
+        val SELECTED_DEVICE_VOICE_NAME = stringPreferencesKey("selected_device_voice_name")
+        val TTS_SPEECH_RATE = floatPreferencesKey("tts_speech_rate")
+        val TTS_PITCH = floatPreferencesKey("tts_pitch")
+        val AUTO_SPEAK_RESPONSES = booleanPreferencesKey("auto_speak_responses")
         val PERSONALITY_MODE = stringPreferencesKey("personality_mode")
         val AVATAR_STYLE = stringPreferencesKey("avatar_style")
         val LANGUAGE = stringPreferencesKey("language")
@@ -58,6 +63,10 @@ class UserPreferencesRepository(context: Context) {
         .map { prefs ->
             UserPreferences(
                 selectedVoiceId = prefs[Keys.SELECTED_VOICE_ID] ?: "neptuno_ocean_neutral",
+                selectedDeviceVoiceName = prefs[Keys.SELECTED_DEVICE_VOICE_NAME],
+                ttsSpeechRate = (prefs[Keys.TTS_SPEECH_RATE] ?: 1.0f).coerceIn(0.6f, 1.6f),
+                ttsPitch = (prefs[Keys.TTS_PITCH] ?: 1.0f).coerceIn(0.7f, 1.4f),
+                autoSpeakResponses = prefs[Keys.AUTO_SPEAK_RESPONSES] ?: true,
                 personalityMode = PersonalityMode.entries.find { it.id == prefs[Keys.PERSONALITY_MODE] }
                     ?: PersonalityMode.ANALYTICAL,
                 avatarStyle = AvatarStyle.entries.find { it.id == prefs[Keys.AVATAR_STYLE] }
@@ -73,12 +82,31 @@ class UserPreferencesRepository(context: Context) {
                 persistConversationHistory = prefs[Keys.PERSIST_HISTORY] ?: true,
                 preferredAudioInputId = prefs[Keys.PREFERRED_AUDIO_INPUT_ID],
                 preferredAudioOutputId = prefs[Keys.PREFERRED_AUDIO_OUTPUT_ID],
-                preferredAiProviderId = prefs[Keys.PREFERRED_AI_PROVIDER_ID] ?: "gemini_live_pending"
+                preferredAiProviderId = prefs[Keys.PREFERRED_AI_PROVIDER_ID] ?: "gemini_firebase"
             )
         }
 
     suspend fun setSelectedVoice(voiceId: String) {
         dataStore.edit { it[Keys.SELECTED_VOICE_ID] = voiceId }
+    }
+
+    suspend fun setSelectedDeviceVoiceName(voiceName: String?) {
+        dataStore.edit { prefs ->
+            if (voiceName.isNullOrBlank()) prefs.remove(Keys.SELECTED_DEVICE_VOICE_NAME)
+            else prefs[Keys.SELECTED_DEVICE_VOICE_NAME] = voiceName
+        }
+    }
+
+    suspend fun setTtsSpeechRate(rate: Float) {
+        dataStore.edit { it[Keys.TTS_SPEECH_RATE] = rate.coerceIn(0.6f, 1.6f) }
+    }
+
+    suspend fun setTtsPitch(pitch: Float) {
+        dataStore.edit { it[Keys.TTS_PITCH] = pitch.coerceIn(0.7f, 1.4f) }
+    }
+
+    suspend fun setAutoSpeakResponses(enabled: Boolean) {
+        dataStore.edit { it[Keys.AUTO_SPEAK_RESPONSES] = enabled }
     }
 
     suspend fun setPersonalityMode(mode: PersonalityMode) {

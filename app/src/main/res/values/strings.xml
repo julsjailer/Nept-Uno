@@ -30,22 +30,24 @@
     <string name="home_network_offline">Sin conexión a Internet</string>
     <string name="home_network_forced_offline">Modo sin conexión activo</string>
     <string name="home_provider_pending">Motor de IA: Integración pendiente</string>
+    <string name="home_provider_ready">Motor de IA operativo</string>
 
     <!-- Conversación -->
     <string name="chat_title">Conversación</string>
     <string name="chat_new_session">Nueva sesión</string>
-    <string name="chat_input_placeholder">Escribe un mensaje para Neptuno…</string>
+    <string name="chat_input_placeholder">Escribe o dicta un mensaje para Neptuno…</string>
     <string name="chat_send_cd">Enviar mensaje</string>
     <string name="chat_mic_cd">Activar micrófono</string>
     <string name="chat_interrupt_cd">Interrumpir respuesta</string>
     <string name="chat_interrupt_label">Interrumpir</string>
-    <string name="chat_provider_banner_title">Proveedor de IA no conectado</string>
-    <string name="chat_provider_banner_body">Esta primera versión almacena tus mensajes localmente en Room y prepara el canal bidireccional. Ningún motor de IA está conectado aún.</string>
-    <string name="chat_empty_title">Canal listo</string>
-    <string name="chat_empty_body">Envía un mensaje para probar la persistencia local del historial o configura las capacidades de voz y memoria.</string>
-    <string name="chat_mic_permission_needed">Se requiere permiso de micrófono para preparar la captura de audio.</string>
-    <string name="chat_mic_ready_pending_engine">Permiso de micrófono concedido. El motor de reconocimiento de voz (STT) está pendiente de integración.</string>
+    <string name="chat_provider_banner_title">Proveedor de IA pendiente</string>
+    <string name="chat_provider_banner_body">El proveedor seleccionado aún está pendiente de integración. Puedes cambiar al motor operativo Gemini en Ajustes.</string>
+    <string name="chat_empty_title">Canal de voz y texto listo</string>
+    <string name="chat_empty_body">Escribe un mensaje o pulsa el micrófono para dictar por voz. Neptuno responderá mediante texto progresivo y síntesis de voz.</string>
+    <string name="chat_mic_permission_needed">Se requiere permiso de micrófono para usar el reconocimiento de voz.</string>
     <string name="chat_offline_notice">Modo sin conexión activo. Los mensajes se registran localmente.</string>
+    <string name="chat_streaming_label">Respondiendo…</string>
+    <string name="chat_interrupted_badge">Respuesta interrumpida</string>
 
     <!-- Bluetooth -->
     <string name="bluetooth_title">Bluetooth y Audio</string>
@@ -94,6 +96,8 @@
     <string name="settings_offline_mode">Modo sin conexión</string>
     <string name="settings_offline_mode_desc">Deshabilita solicitudes externas futuras y opera solo con almacenamiento local.</string>
     <string name="settings_audio">Audio y voz</string>
+    <string name="settings_auto_speak">Reproducir respuestas por voz</string>
+    <string name="settings_auto_speak_desc">Lee automáticamente las respuestas completas de Neptuno usando Android TextToSpeech.</string>
     <string name="settings_barge_in">Interrupción de voz (barge-in)</string>
     <string name="settings_barge_in_desc">Permite detener respuestas activas al iniciar nueva entrada de audio.</string>
     <string name="settings_auto_route_bt">Priorizar audio Bluetooth</string>

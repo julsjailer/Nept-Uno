@@ -30,6 +30,16 @@
         android:name="android.hardware.microphone"
         android:required="false" />
 
+    <!-- Visibilidad de servicios de reconocimiento (STT) y síntesis de voz (TTS) en Android 11+ (API 30+) -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:name=".neptuno.app.NeptunoApplication"
         android:allowBackup="false"

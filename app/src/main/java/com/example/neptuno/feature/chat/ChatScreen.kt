@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
@@ -64,7 +65,6 @@ import com.example.neptuno.core.model.AssistantState
 import com.example.neptuno.core.model.ChatMessage
 import com.example.neptuno.core.model.MessageSender
 import com.example.neptuno.feature.avatar.NeptunoAvatar
-import com.example.neptuno.feature.home.assistantStateLabel
 import com.example.ui.theme.AmberPending
 import com.example.ui.theme.AmberPendingContainer
 import com.example.ui.theme.BioluminescentTurquoise
@@ -89,13 +89,17 @@ fun ChatScreen(
         viewModel.onMicrophonePermissionResult(granted)
     }
 
-    LaunchedEffect(state.messages.size) {
-        if (state.messages.isNotEmpty()) {
-            listState.animateScrollToItem(state.messages.lastIndex)
+    LaunchedEffect(state.messages.size, state.streamingResponseText) {
+        val totalItems = state.messages.size + if (state.streamingResponseText != null) 1 else 0
+        if (totalItems > 0) {
+            listState.animateScrollToItem(totalItems - 1)
         }
     }
 
-    val isInterruptible = state.assistantState == AssistantState.LISTENING ||
+    val isInterruptible = state.isListening ||
+        state.isGeneratingText ||
+        state.isSpeaking ||
+        state.assistantState == AssistantState.LISTENING ||
         state.assistantState == AssistantState.PROCESSING ||
         state.assistantState == AssistantState.SPEAKING
 
@@ -116,9 +120,13 @@ fun ChatScreen(
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                text = "${assistantStateLabel(state.assistantState)} · ${state.activeProviderName}",
+                                text = "${state.statusDetail} · ${state.activeProviderName}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.secondary
+                                color = if (state.assistantState == AssistantState.ERROR) {
+                                    CoralAlert
+                                } else {
+                                    MaterialTheme.colorScheme.secondary
+                                }
                             )
                         }
                     }
@@ -176,7 +184,7 @@ fun ChatScreen(
                     .fillMaxSize()
                     .widthIn(max = 720.dp)
             ) {
-                // Banner transparente cuando el proveedor de IA está pendiente
+                // Banner transparente cuando el proveedor seleccionado sigue pendiente
                 if (state.isProviderPending) {
                     Surface(
                         shape = MaterialTheme.shapes.medium,
@@ -213,13 +221,25 @@ fun ChatScreen(
                     }
                 }
 
-                // Banner de estado del micrófono / canal bidireccional
+                // Banner de estado del micrófono / STT / TTS
                 AnimatedVisibility(visible = state.microphoneStatusBanner != null) {
                     state.microphoneStatusBanner?.let { bannerText ->
+                        val isErrorBanner = state.assistantState == AssistantState.ERROR
                         Surface(
                             shape = MaterialTheme.shapes.medium,
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                            border = BorderStroke(1.dp, BioluminescentTurquoise.copy(alpha = 0.45f)),
+                            color = if (isErrorBanner) {
+                                CoralAlert.copy(alpha = 0.14f)
+                            } else {
+                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                            },
+                            border = BorderStroke(
+                                1.dp,
+                                if (isErrorBanner) {
+                                    CoralAlert.copy(alpha = 0.55f)
+                                } else {
+                                    BioluminescentTurquoise.copy(alpha = 0.45f)
+                                }
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -250,7 +270,7 @@ fun ChatScreen(
                 }
 
                 // Lista de mensajes o estado vacío
-                if (state.messages.isEmpty()) {
+                if (state.messages.isEmpty() && state.streamingResponseText == null) {
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -278,6 +298,14 @@ fun ChatScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center
                             )
+                            if (!state.sttAvailability.isServiceAvailable) {
+                                Text(
+                                    text = state.sttAvailability.note,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = AmberPending,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
                     }
                 } else {
@@ -290,12 +318,20 @@ fun ChatScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(state.messages, key = { it.id }) { msg ->
-                            ChatMessageBubble(message = msg)
+                            ChatMessageBubble(
+                                message = msg,
+                                onSpeakMessage = { viewModel.speakMessage(msg) }
+                            )
+                        }
+                        state.streamingResponseText?.let { partialText ->
+                            item(key = "streaming_assistant_bubble") {
+                                StreamingAssistantBubble(text = partialText)
+                            }
                         }
                     }
                 }
 
-                // Barra de entrada de texto + micrófono + envío
+                // Barra de entrada de texto + micrófono STT + envío
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainer,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -309,7 +345,7 @@ fun ChatScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val isListening = state.assistantState == AssistantState.LISTENING
+                        val isListening = state.isListening
                         FilledIconButton(
                             onClick = {
                                 if (PermissionHelper.hasRecordAudioPermission(context)) {
@@ -337,7 +373,11 @@ fun ChatScreen(
                         ) {
                             Icon(
                                 imageVector = if (isListening) Icons.Outlined.MicOff else Icons.Filled.Mic,
-                                contentDescription = stringResource(R.string.chat_mic_cd)
+                                contentDescription = if (isListening) {
+                                    "Detener micrófono"
+                                } else {
+                                    stringResource(R.string.chat_mic_cd)
+                                }
                             )
                         }
 
@@ -346,7 +386,11 @@ fun ChatScreen(
                             onValueChange = viewModel::onDraftChanged,
                             placeholder = {
                                 Text(
-                                    text = stringResource(R.string.chat_input_placeholder),
+                                    text = if (isListening) {
+                                        "Escuchando voz…"
+                                    } else {
+                                        stringResource(R.string.chat_input_placeholder)
+                                    },
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                             },
@@ -386,17 +430,54 @@ fun ChatScreen(
 }
 
 @Composable
-private fun ChatMessageBubble(message: ChatMessage) {
+private fun StreamingAssistantBubble(text: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start
+    ) {
+        Surface(
+            shape = RoundedCornerShape(
+                topStart = 18.dp,
+                topEnd = 18.dp,
+                bottomStart = 4.dp,
+                bottomEnd = 18.dp
+            ),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            border = BorderStroke(1.dp, BioluminescentTurquoise.copy(alpha = 0.5f)),
+            modifier = Modifier
+                .widthIn(max = 310.dp)
+                .testTag("chat_streaming_bubble")
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Text(
+                    text = stringResource(R.string.chat_streaming_label).uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = BioluminescentTurquoise
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatMessageBubble(
+    message: ChatMessage,
+    onSpeakMessage: () -> Unit
+) {
     val isUser = message.sender == MessageSender.USER
+    val isAssistant = message.sender == MessageSender.ASSISTANT
     val isSystemNotice = message.sender == MessageSender.SYSTEM_NOTICE
     val timeText = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestampMillis))
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = when {
-            isUser -> Arrangement.End
-            else -> Arrangement.Start
-        }
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
         Surface(
             shape = RoundedCornerShape(
@@ -415,6 +496,7 @@ private fun ChatMessageBubble(message: ChatMessage) {
                 when {
                     isUser -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                     isSystemNotice -> AmberPending.copy(alpha = 0.4f)
+                    message.isInterrupted -> CoralAlert.copy(alpha = 0.45f)
                     else -> MaterialTheme.colorScheme.outlineVariant
                 }
             ),
@@ -423,24 +505,58 @@ private fun ChatMessageBubble(message: ChatMessage) {
             Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                 if (isSystemNotice) {
                     Text(
-                        text = "AVISO DEL SISTEMA · SIN PROVEEDOR IA",
+                        text = if (message.isInterrupted) {
+                            "AVISO DEL SISTEMA · INTERRUPCIÓN"
+                        } else {
+                            "AVISO DEL SISTEMA"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = AmberPending
                     )
                     Spacer(modifier = Modifier.height(4.dp))
+                } else if (isAssistant && message.isInterrupted) {
+                    Text(
+                        text = stringResource(R.string.chat_interrupted_badge).uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = CoralAlert
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
+
                 Text(
                     text = message.content,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = timeText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.End)
-                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (isAssistant) Arrangement.SpaceBetween else Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (isAssistant) {
+                        IconButton(
+                            onClick = onSpeakMessage,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("chat_speak_message_${message.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = "Reproducir respuesta en voz alta",
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = timeText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

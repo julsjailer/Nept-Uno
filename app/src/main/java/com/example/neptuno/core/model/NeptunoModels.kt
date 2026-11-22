@@ -83,14 +83,28 @@ data class AudioRouteInfo(
 )
 
 /**
- * Perfil de voz extensible: preparado para motores TTS locales, neuronales o Gemini Live.
+ * Perfil de voz extensible: conectado con Android TextToSpeech y preparado para Gemini Live.
  */
 data class VoiceProfile(
     val id: String,
     val displayName: String,
     val description: String,
     val engineType: String,
-    val isAvailableNow: Boolean = false
+    val isAvailableNow: Boolean = false,
+    val availabilityNote: String = "",
+    val basePitch: Float = 1.0f,
+    val baseRate: Float = 1.0f
+)
+
+/**
+ * Voz real instalada en el dispositivo reportada por Android TextToSpeech.
+ */
+data class DeviceVoiceInfo(
+    val name: String,
+    val displayName: String,
+    val localeTag: String,
+    val requiresNetwork: Boolean,
+    val qualityLabel: String
 )
 
 enum class PersonalityMode(val id: String, val label: String, val description: String) {
@@ -120,6 +134,10 @@ enum class ThemeMode(val id: String, val label: String) {
 
 data class UserPreferences(
     val selectedVoiceId: String = "neptuno_ocean_neutral",
+    val selectedDeviceVoiceName: String? = null,
+    val ttsSpeechRate: Float = 1.0f,
+    val ttsPitch: Float = 1.0f,
+    val autoSpeakResponses: Boolean = true,
     val personalityMode: PersonalityMode = PersonalityMode.ANALYTICAL,
     val avatarStyle: AvatarStyle = AvatarStyle.ABYSSAL_CORE,
     val language: AppLanguage = AppLanguage.SPANISH,
@@ -131,7 +149,7 @@ data class UserPreferences(
     val persistConversationHistory: Boolean = true,
     val preferredAudioInputId: Int? = null,
     val preferredAudioOutputId: Int? = null,
-    val preferredAiProviderId: String = "gemini_live_pending"
+    val preferredAiProviderId: String = "gemini_firebase"
 )
 
 enum class ToolCategory(val label: String) {

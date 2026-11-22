@@ -189,7 +189,15 @@ class NeptunoPersistenceTest {
     fun `datastore persists and restores main user preferences`() = runTest {
         val prefsRepo = UserPreferencesRepository(context)
 
+        val modelDefaults = com.example.neptuno.core.model.UserPreferences()
+        assertEquals("gemini_firebase", modelDefaults.preferredAiProviderId)
+        assertTrue(modelDefaults.autoSpeakResponses)
+
         prefsRepo.setSelectedVoice("neptuno_abyssal_deep")
+        prefsRepo.setSelectedDeviceVoiceName("es-es-x-eed-local")
+        prefsRepo.setTtsSpeechRate(1.25f)
+        prefsRepo.setTtsPitch(0.85f)
+        prefsRepo.setAutoSpeakResponses(false)
         prefsRepo.setPersonalityMode(PersonalityMode.CONCISE)
         prefsRepo.setAvatarStyle(AvatarStyle.TRIDENT_MATRIX)
         prefsRepo.setLanguage(AppLanguage.ENGLISH)
@@ -205,6 +213,10 @@ class NeptunoPersistenceTest {
 
         val loaded = prefsRepo.userPreferences.first()
         assertEquals("neptuno_abyssal_deep", loaded.selectedVoiceId)
+        assertEquals("es-es-x-eed-local", loaded.selectedDeviceVoiceName)
+        assertEquals(1.25f, loaded.ttsSpeechRate, 0.001f)
+        assertEquals(0.85f, loaded.ttsPitch, 0.001f)
+        assertFalse(loaded.autoSpeakResponses)
         assertEquals(PersonalityMode.CONCISE, loaded.personalityMode)
         assertEquals(AvatarStyle.TRIDENT_MATRIX, loaded.avatarStyle)
         assertEquals(AppLanguage.ENGLISH, loaded.language)
@@ -220,8 +232,10 @@ class NeptunoPersistenceTest {
 
         prefsRepo.setPreferredAudioInput(null)
         prefsRepo.setPreferredAudioOutput(null)
+        prefsRepo.setSelectedDeviceVoiceName(null)
         val cleared = prefsRepo.userPreferences.first()
         assertNull(cleared.preferredAudioInputId)
         assertNull(cleared.preferredAudioOutputId)
+        assertNull(cleared.selectedDeviceVoiceName)
     }
 }

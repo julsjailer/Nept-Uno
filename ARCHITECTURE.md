@@ -1,72 +1,53 @@
-# Arquitectura de NEPTUNO (Android Nativo — Fase 1 Estabilizada)
+# Arquitectura de NEPTUNO (Android Nativo — Fase 2: Sistema de Voz STT/TTS y Gemini)
 
-NEPTUNO está diseñado como una base Android nativa modular en Kotlin + Jetpack Compose + Material 3, compatible a partir de **Android 10 (API 29)** hasta **Android 16 (API 36)**, preparada para crecer hacia audio bidireccional, múltiples proveedores de IA, Bluetooth avanzado y herramientas extensibles sin reconstruir el proyecto.
+NEPTUNO es una aplicación Android nativa modular en Kotlin + Jetpack Compose + Material 3, compatible desde **Android 10 (API 29)** hasta **Android 16 (API 36)**, con persistencia local en Room y DataStore, reconocimiento/síntesis de voz reales y proveedor online Gemini mediante Firebase AI Logic.
 
 ## 1. Separación de módulos / paquetes
 
-Cada responsabilidad reside en un paquete independiente bajo `com.example.neptuno.*` con contratos claros y dependencias controladas:
-
 | Paquete | Responsabilidad |
 |---|---|
-| `app` | `NeptunoApplication`, contenedor manual de dependencias (`NeptunoAppContainer`) y grafo de navegación adaptativo (`NeptunoNavHost`). |
-| `core` | Utilidades transversales del sistema: `NetworkMonitor` (`ConnectivityManager`), `PermissionHelper` (adaptación API 29–30 vs API 31+), `DispatcherProvider`. |
-| `core.model` | Modelos de dominio puros (`AssistantState`, `ChatMessage`, `ConversationSession`, `MemoryEntry`, `BluetoothDeviceInfo`, `AudioRouteInfo`, `VoiceProfile`, `UserPreferences`, `ToolDescriptor`). |
+| `app` | `NeptunoApplication`, `NeptunoAppContainer` (inyección manual de repositorios, motores STT/TTS/PCM y proveedores de IA) y `NeptunoNavHost` adaptativo (`NavigationBar` / `NavigationRail`). |
+| `core` | Utilidades del sistema: `NetworkMonitor` (`ConnectivityManager`), `PermissionHelper`, `DispatcherProvider`. |
+| `core.model` | Modelos de dominio (`AssistantState`, `ChatMessage`, `ConversationSession`, `MemoryEntry`, `BluetoothDeviceInfo`, `AudioRouteInfo`, `VoiceProfile`, `DeviceVoiceInfo`, `UserPreferences`, `ToolDescriptor`). |
 | `data.local` | Persistencia real mediante **Room** (`NeptunoDatabase`, `ConversationDao`, `MessageDao`, `MemoryDao`, repositorios) y **Jetpack DataStore** (`UserPreferencesRepository`). |
-| `ai.api` | Contratos desacoplados `AiProvider`, `AiRequest`, `AiResponseEvent` y `AiProviderRegistry`, incluyendo interrupción (`interruptActiveResponse`). |
-| `ai.gemini` | Contrato `GeminiLiveSessionContract` y proveedor `GeminiPendingProvider` (sin claves privadas ni respuestas simuladas). |
-| `ai.local` | Proveedor `LocalEnginePendingProvider` preparado para futuros motores on-device sin conexión. |
-| `audio.engine` | Contratos `AudioCaptureEngine`, `AudioPlaybackEngine`, `SpeechToTextEngine`, `TextToSpeechEngine`, `AudioRoutingController`, `BidirectionalAudioCoordinator`, catálogo extensible `VoiceProfileCatalog` e inspector real `AndroidAudioRouteManager`. |
+| `ai.api` | Contratos desacoplados `AiProvider`, `AiRequest`, `AiResponseEvent` (`TextDelta`, `Completed`, `Interrupted`, `IntegrationPending`, `Failure`) y `AiProviderRegistry`. |
+| `ai.gemini` | `GeminiFirebaseProvider` operativo vía Firebase AI Logic (`Firebase.ai`, `generateContentStream`, App Check en `MainActivity`) más `GeminiPendingProvider` / `GeminiLiveSessionContract` para la futura sesión WebSocket de audio bidireccional. |
+| `ai.local` | `LocalEnginePendingProvider` preparado para futuros motores on-device sin conexión. |
+| `audio.engine` | Implementaciones reales `AndroidSpeechToTextEngine` (`SpeechRecognizer` en hilo principal), `AndroidTextToSpeechEngine` (`TextToSpeech` + `UtteranceProgressListener`), `AndroidAudioCaptureEngine` (`AudioRecord`), `AndroidAudioPlaybackEngine` (`AudioTrack`), `BidirectionalAudioCoordinator`, catálogo dinámico `VoiceProfileCatalog`, `AndroidAudioRouteManager` y contrato `AudioRoutingController`. |
 | `voice.wake` | Contrato `WakeWordEngine` para detección futura de palabra de activación. |
-| `android.services` | `BluetoothDeviceController` (estado real del adaptador + dispositivos vinculados) y `AssistantServiceContract` para futuros servicios en primer plano. |
-| `feature.avatar` | Personaje 2D `NeptunoAvatar` con animaciones reactivas para los 6 estados: `IDLE`, `LISTENING`, `PROCESSING`, `SPEAKING`, `ERROR`, `OFFLINE`. |
-| `feature.home` | Pantalla de Inicio con personaje 2D, conectividad real, estado de Bluetooth y accesos rápidos. |
-| `feature.chat` | Interfaz de conversación con historial persistido en Room, solicitud real de permiso `RECORD_AUDIO`, canal preparado para audio bidireccional y control de interrupción. |
-| `feature.bluetooth` | Gestión real del estado Bluetooth, permisos Android 12+, dispositivos vinculados del sistema y detección real de rutas de audio (`AudioManager`) con guardado explícito de preferencias locales. |
-| `feature.memory` | Gestión de memoria autorizada y sesiones de historial en Room con consulta y eliminación individual o total. |
-| `feature.tools` | Catálogo extensible `ToolRegistry` y contrato `NeptunoTool`, marcando con transparencia las capacidades pendientes. |
-| `feature.settings` | Pantallas de Personalización y Configuración sincronizadas con DataStore. |
+| `android.services` | `BluetoothDeviceController` y `AssistantServiceContract`. |
+| `feature.avatar` | Personaje 2D `NeptunoAvatar` reactivo a los 6 estados: `IDLE`, `LISTENING`, `PROCESSING`, `SPEAKING`, `ERROR`, `OFFLINE`. |
+| `feature.home` | Pantalla de Inicio con avatar 2D, conectividad real, Bluetooth, estado del proveedor IA y accesos rápidos. |
+| `feature.chat` | Conversación por texto y voz: dictado STT parcial/final en el campo de entrada, acumulación progresiva `TextDelta`, persistencia única en Room al finalizar, lectura automática TTS, reproducción por mensaje e interrupción inmediata (`barge-in`). |
+| `feature.bluetooth` | Estado real de Bluetooth, permisos Android 12+, dispositivos vinculados y detección de rutas de audio (`AudioManager`) con guardado de preferencias locales. |
+| `feature.memory` | Gestión de memoria autorizada e historial de conversaciones en Room. |
+| `feature.tools` | Catálogo extensible `ToolRegistry` y contrato `NeptunoTool` (pendiente de ejecución activa). |
+| `feature.settings` | Personalización (avatar, personalidad, perfiles de voz vinculados a Android TTS, voces instaladas, velocidad/tono, vista previa en vivo, idioma) y Configuración (proveedor IA, modo sin conexión, lectura automática, barge-in, privacidad, tema). |
 
-## 2. Persistencia local
+## 2. Sistema de Voz (Fase 2) y flujo de interrupción
 
-- **Room (`neptuno_local.db`)**:
-  - `conversations`: sesiones de conversación con borrado en cascada y verificación de existencia (`ensureConversationExists`) antes de insertar mensajes.
-  - `messages`: mensajes de usuario y avisos del sistema con marca de tiempo e indicador de interrupción.
-  - `memory_entries`: preferencias y recuerdos autorizados explícitamente por el usuario.
-- **Jetpack DataStore (`neptuno_user_preferences`)**:
-  - Conserva voz seleccionada, personalidad, estilo de personaje, idioma, tema, modo sin conexión, interrupción de voz (barge-in), prioridad Bluetooth, autorización de memoria, persistencia de historial, preferencias de entrada/salida de audio y proveedor de IA preferido.
+1. **Reconocimiento de voz (STT)**:
+   - `AndroidSpeechToTextEngine` usa `android.speech.SpeechRecognizer` en `Dispatchers.Main.immediate`, solicita `RECORD_AUDIO`, impide sesiones simultáneas, emite resultados parciales y finales al campo de texto de `ChatScreen`, y comprueba disponibilidad del servicio y soporte on-device (`isOnDeviceRecognitionAvailable` en API 31+).
+2. **Síntesis de voz (TTS) y perfiles**:
+   - `AndroidTextToSpeechEngine` inicializa `android.speech.tts.TextToSpeech`, consulta voces e idiomas instalados reales, resuelve la disponibilidad real de `VoiceProfileCatalog`, aplica velocidad (`ttsSpeechRate`), tono (`ttsPitch`) y voz instalada preferida, y soporta detención inmediata.
+3. **Barge-in / Interrupción**:
+   - Al pulsar **Interrumpir** (o activar el micrófono con `bargeInEnabled = true`), iniciar una nueva sesión o cambiar de conversación, `ChatViewModel` cancela la generación en curso, notifica al proveedor IA, detiene `TextToSpeech`, `AudioTrack` y `SpeechRecognizer`, y conserva el fragmento parcial marcado como interrumpido.
 
-## 3. Privacidad y política de respaldos
+## 3. Proveedor de IA y capacidades aún pendientes
 
-Se aplica una **política conservadora de privacidad** para proteger conversaciones y memorias locales:
+- **Operativo**: `GeminiFirebaseProvider` (Firebase AI Logic + Firebase App Check, streaming de texto `generateContentStream`, sin claves privadas en el repositorio).
+- **Pendiente para fases posteriores**:
+  - Sesión en tiempo real de audio bidireccional nativo (`GeminiLiveSessionContract` / `GeminiPendingProvider`).
+  - Motor de IA local sin conexión (`LocalEnginePendingProvider`).
+  - Enrutamiento activo de audio Bluetooth (`AudioRoutingController` -> `AudioManager.setCommunicationDevice` / SCO / A2DP).
+  - Detección continua de palabra de activación (`WakeWordEngine`) y ejecución real de herramientas (`NeptunoTool`).
 
-- **Qué NO se respalda automáticamente**:
-  - La base de datos Room (`neptuno_local.db`: conversaciones, mensajes y memorias autorizadas).
-  - Los archivos de preferencias de Jetpack DataStore (`datastore/`) y `sharedpref`.
-- **Implementación por versión de Android**:
-  - `AndroidManifest.xml` define `android:allowBackup="false"`.
-  - **Android 10–11 (API 29–30)**: `res/xml/backup_rules.xml` excluye explícitamente `database`, `file/datastore/` y `sharedpref`.
-  - **Android 12+ (API 31+)**: `res/xml/data_extraction_rules.xml` excluye explícitamente `database`, `file/datastore/` y `sharedpref` tanto en `<cloud-backup>` como en `<device-transfer>`.
-- **Evolución futura**: esta política mantiene intacta la capacidad de incorporar en fases futuras una exportación/restauración cifrada y controlada explícitamente por el usuario.
+## 4. Persistencia y política conservadora de respaldos
 
-## 4. Bluetooth y rutas de audio
+- **Room (`neptuno_local.db`)** y **Jetpack DataStore (`neptuno_user_preferences`)** están excluidos de respaldos automáticos mediante `android:allowBackup="false"`, `res/xml/backup_rules.xml` y `res/xml/data_extraction_rules.xml`.
+- Se respetan los interruptores de privacidad: si `persistConversationHistory` está desactivado, los mensajes se mantienen solo en memoria de sesión y no se escriben en Room.
 
-- **Operativo en esta fase**:
-  - Observación real del estado del adaptador Bluetooth (`ON`, `OFF`, `UNAVAILABLE`).
-  - Solicitud de permisos `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN` en Android 12+ (`neverForLocation`).
-  - Lectura real de dispositivos vinculados (`BluetoothAdapter.bondedDevices`).
-  - Consulta real de dispositivos de entrada/salida de audio (`AudioManager.getDevices(...)`).
-  - Persistencia local en DataStore de la entrada y salida preferidas.
-- **Pendiente para la fase Bluetooth/Audio**:
-  - Cambio activo de la ruta de audio del sistema (`AudioRoutingController` -> `AudioManager.setCommunicationDevice` / SCO / A2DP). La interfaz informa explícitamente que seleccionar una ruta guarda una preferencia local y no ejecuta aún un cambio activo de ruta.
+## 5. Compilación y firma
 
-## 5. Compilación, Gradle Wrapper y firma
-
-- **Gradle Wrapper**: el proyecto incluye el wrapper oficial (`gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar` y `gradle/wrapper/gradle-wrapper.properties` para Gradle 9.3.1).
-- **Compilación Debug**: lista para ejecutarse con `debugConfig` (`debug.keystore` generado automáticamente por el entorno de compilación).
-- **Compilación Release**: requiere configurar externamente las variables de entorno `KEYSTORE_PATH` (o el archivo `my-upload-key.jks`), `STORE_PASSWORD` y `KEY_PASSWORD` con el alias `upload`. No se incluyen contraseñas ni claves privadas en el repositorio ni en el ZIP.
-
-## 6. Preparación para Fases 2+
-
-1. **Conectar proveedor real de IA**: implementar `AiProvider` en `ai.gemini` (Gemini / Gemini Live) o `ai.local` y registrarlo en `NeptunoAppContainer.aiProviderRegistry` sin modificar `ChatScreen` ni `ChatViewModel`.
-2. **Audio bidireccional y enrutamiento activo**: implementar `AudioCaptureEngine`, `AudioPlaybackEngine`, `SpeechToTextEngine`, `TextToSpeechEngine` y `AudioRoutingController` en `audio.engine`.
-3. **Herramientas operativas**: implementar `NeptunoTool` en `feature.tools` y habilitar su ejecución cuando exista proveedor IA conectado.
+- Gradle Wrapper oficial incluido (`gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`).
+- Firma `debugConfig` para compilaciones de depuración en Google AI Studio y configuración `release` mediante variables externas (`KEYSTORE_PATH`, `STORE_PASSWORD`, `KEY_PASSWORD`) sin credenciales en el código.

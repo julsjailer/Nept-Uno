@@ -106,7 +106,10 @@ fun NeptunoAppShell(container: NeptunoAppContainer) {
             preferencesRepository = container.preferencesRepository,
             aiProviderRegistry = container.aiProviderRegistry,
             audioCoordinator = container.audioCoordinator,
-            networkMonitor = container.networkMonitor
+            networkMonitor = container.networkMonitor,
+            speechToTextEngine = container.speechToTextEngine,
+            textToSpeechEngine = container.textToSpeechEngine,
+            audioPlaybackEngine = container.audioPlaybackEngine
         )
     )
 
@@ -130,7 +133,8 @@ fun NeptunoAppShell(container: NeptunoAppContainer) {
     val settingsViewModel: SettingsViewModel = viewModel(
         factory = SettingsViewModel.factory(
             preferencesRepository = container.preferencesRepository,
-            aiProviderRegistry = container.aiProviderRegistry
+            aiProviderRegistry = container.aiProviderRegistry,
+            textToSpeechEngine = container.textToSpeechEngine
         )
     )
 

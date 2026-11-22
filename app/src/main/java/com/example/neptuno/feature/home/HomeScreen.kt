@@ -224,9 +224,17 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = "${stringResource(R.string.home_provider_pending)} (${state.activeProviderName})",
+                            text = if (state.isProviderReady) {
+                                "${stringResource(R.string.home_provider_ready)}: ${state.activeProviderName}"
+                            } else {
+                                "${stringResource(R.string.home_provider_pending)} (${state.activeProviderName})"
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (state.isProviderReady) {
+                                MaterialTheme.colorScheme.secondary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                             textAlign = TextAlign.Center
                         )
 
