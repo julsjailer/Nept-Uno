@@ -23,6 +23,8 @@ import com.example.neptuno.core.model.UserPreferences
 import com.example.neptuno.data.local.ConversationRepository
 import com.example.neptuno.data.local.MemoryRepository
 import com.example.neptuno.data.local.UserPreferencesRepository
+import com.example.neptuno.data.remote.CloudSyncGateway
+import com.example.neptuno.data.remote.NoOpCloudSyncGateway
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -93,7 +95,8 @@ class ChatViewModel(
     private val networkMonitor: NetworkMonitor,
     private val speechToTextEngine: SpeechToTextEngine,
     private val textToSpeechEngine: TextToSpeechEngine,
-    private val audioPlaybackEngine: AudioPlaybackEngine
+    private val audioPlaybackEngine: AudioPlaybackEngine,
+    private val cloudSyncGateway: CloudSyncGateway = NoOpCloudSyncGateway
 ) : ViewModel() {
 
     private val _activeConversationId = MutableStateFlow<Long?>(null)
@@ -282,11 +285,19 @@ class ChatViewModel(
                 )
 
                 if (prefs.persistConversationHistory) {
-                    conversationRepository.addMessage(userMsg)
+                    val savedId = conversationRepository.addMessage(userMsg)
+                    var convTitle = "Sesión principal"
                     if (existingCount == 0) {
                         val autoTitle = trimmed.take(42).let { if (trimmed.length > 42) "$it…" else it }
                         conversationRepository.updateConversationTitle(conversationId, autoTitle)
+                        convTitle = autoTitle
+                        cloudSyncGateway.syncConversationTitle(conversationId, autoTitle)
                     }
+                    cloudSyncGateway.syncMessageAdded(
+                        conversationId = conversationId,
+                        conversationTitle = convTitle,
+                        message = userMsg.copy(id = savedId)
+                    )
                 } else {
                     _inMemoryMessages.value = _inMemoryMessages.value + userMsg.copy(id = System.nanoTime())
                 }
@@ -734,7 +745,12 @@ class ChatViewModel(
 
     private suspend fun appendMessage(persist: Boolean, message: ChatMessage) {
         if (persist) {
-            conversationRepository.addMessage(message)
+            val savedId = conversationRepository.addMessage(message)
+            cloudSyncGateway.syncMessageAdded(
+                conversationId = message.conversationId,
+                conversationTitle = "Sesión principal",
+                message = message.copy(id = savedId)
+            )
         } else {
             _inMemoryMessages.value = _inMemoryMessages.value + message.copy(id = System.nanoTime())
         }
@@ -765,7 +781,8 @@ class ChatViewModel(
             networkMonitor: NetworkMonitor,
             speechToTextEngine: SpeechToTextEngine,
             textToSpeechEngine: TextToSpeechEngine,
-            audioPlaybackEngine: AudioPlaybackEngine
+            audioPlaybackEngine: AudioPlaybackEngine,
+            cloudSyncGateway: CloudSyncGateway = NoOpCloudSyncGateway
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -778,7 +795,8 @@ class ChatViewModel(
                     networkMonitor = networkMonitor,
                     speechToTextEngine = speechToTextEngine,
                     textToSpeechEngine = textToSpeechEngine,
-                    audioPlaybackEngine = audioPlaybackEngine
+                    audioPlaybackEngine = audioPlaybackEngine,
+                    cloudSyncGateway = cloudSyncGateway
                 ) as T
             }
         }

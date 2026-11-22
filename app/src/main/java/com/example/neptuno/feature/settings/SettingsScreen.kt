@@ -40,9 +40,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material3.Button
 import com.example.BuildConfig
 import com.example.R
 import com.example.neptuno.core.model.ThemeMode
+import com.example.neptuno.feature.cloud.CloudAccountSummary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,7 +52,13 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onOpenPersonalization: () -> Unit,
     onOpenMemory: () -> Unit,
-    onNavigateBack: (() -> Unit)? = null
+    onNavigateBack: (() -> Unit)? = null,
+    cloudSummary: CloudAccountSummary? = null,
+    cloudMemoriesCount: Int? = null,
+    cloudConversationsCount: Int? = null,
+    cloudError: String? = null,
+    onSyncNow: (() -> Unit)? = null,
+    onSignOut: (() -> Unit)? = null
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
 
@@ -90,6 +98,76 @@ fun SettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (cloudSummary != null) {
+                item {
+                    SettingsSectionCard(title = "Cuenta Google y Cloud Firestore") {
+                        Text(
+                            text = cloudSummary.displayName,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (!cloudSummary.email.isNullOrBlank()) {
+                            Text(
+                                text = cloudSummary.email,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val countsText = if (cloudMemoriesCount != null && cloudConversationsCount != null) {
+                            "En la nube: $cloudMemoriesCount memorias · $cloudConversationsCount sesiones"
+                        } else {
+                            "Conectando con Cloud Firestore…"
+                        }
+                        Text(
+                            text = countsText,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                        if (!cloudSummary.lastSyncMessage.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = cloudSummary.lastSyncMessage,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (!cloudError.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = cloudError,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (onSyncNow != null) {
+                                OutlinedButton(
+                                    onClick = onSyncNow,
+                                    enabled = !cloudSummary.isSyncing,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("settings_cloud_sync_button")
+                                ) {
+                                    Text(if (cloudSummary.isSyncing) "Sincronizando…" else "Sincronizar")
+                                }
+                            }
+                            if (onSignOut != null) {
+                                Button(
+                                    onClick = onSignOut,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("settings_sign_out_button")
+                                ) {
+                                    Text("Cerrar sesión")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Conectividad y proveedor IA previsto
             item {
                 SettingsSectionCard(title = stringResource(R.string.settings_connectivity)) {
@@ -259,7 +337,8 @@ fun SettingsScreen(
                     AboutInfoRow("Aplicación", "NEPTUNO · Fase 2 (Voz STT/TTS y Gemini)")
                     AboutInfoRow("Versión", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                     AboutInfoRow("Compatibilidad", "Android 10+ (API 29) · Actual API ${Build.VERSION.SDK_INT}")
-                    AboutInfoRow("Almacenamiento", "Room SQLite + Jetpack DataStore")
+                    AboutInfoRow("Almacenamiento", "Room SQLite + DataStore + Cloud Firestore")
+                    AboutInfoRow("Autenticación", "Google Sign-In (Credential Manager)")
                     AboutInfoRow("Voz", "Android SpeechRecognizer + TextToSpeech")
                     AboutInfoRow("Motor de IA", "Firebase AI Logic + contratos extensibles")
                 }

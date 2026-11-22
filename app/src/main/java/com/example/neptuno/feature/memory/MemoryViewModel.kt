@@ -9,6 +9,8 @@ import com.example.neptuno.core.model.MemoryEntry
 import com.example.neptuno.data.local.ConversationRepository
 import com.example.neptuno.data.local.MemoryRepository
 import com.example.neptuno.data.local.UserPreferencesRepository
+import com.example.neptuno.data.remote.CloudSyncGateway
+import com.example.neptuno.data.remote.NoOpCloudSyncGateway
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -24,7 +26,8 @@ data class MemoryUiState(
 class MemoryViewModel(
     private val memoryRepository: MemoryRepository,
     private val conversationRepository: ConversationRepository,
-    preferencesRepository: UserPreferencesRepository
+    preferencesRepository: UserPreferencesRepository,
+    private val cloudSyncGateway: CloudSyncGateway = NoOpCloudSyncGateway
 ) : ViewModel() {
 
     val uiState: StateFlow<MemoryUiState> = combine(
@@ -46,38 +49,42 @@ class MemoryViewModel(
     fun saveAuthorizedMemory(title: String, content: String, category: MemoryCategory) {
         if (title.isBlank() || content.isBlank()) return
         viewModelScope.launch {
-            memoryRepository.saveMemory(
-                MemoryEntry(
-                    title = title.trim(),
-                    content = content.trim(),
-                    category = category,
-                    authorizedByUser = true
-                )
+            val entry = MemoryEntry(
+                title = title.trim(),
+                content = content.trim(),
+                category = category,
+                authorizedByUser = true
             )
+            val savedId = memoryRepository.saveMemory(entry)
+            cloudSyncGateway.syncMemorySaved(entry.copy(id = savedId))
         }
     }
 
     fun deleteMemory(id: Long) {
         viewModelScope.launch {
             memoryRepository.deleteMemory(id)
+            cloudSyncGateway.syncMemoryDeleted(id)
         }
     }
 
     fun clearAllMemories() {
         viewModelScope.launch {
             memoryRepository.clearAllMemories()
+            cloudSyncGateway.syncAllMemoriesCleared()
         }
     }
 
     fun deleteConversation(id: Long) {
         viewModelScope.launch {
             conversationRepository.deleteConversation(id)
+            cloudSyncGateway.syncConversationDeleted(id)
         }
     }
 
     fun clearAllConversations() {
         viewModelScope.launch {
             conversationRepository.clearAllConversations()
+            cloudSyncGateway.syncAllConversationsCleared()
         }
     }
 
@@ -85,14 +92,16 @@ class MemoryViewModel(
         fun factory(
             memoryRepository: MemoryRepository,
             conversationRepository: ConversationRepository,
-            preferencesRepository: UserPreferencesRepository
+            preferencesRepository: UserPreferencesRepository,
+            cloudSyncGateway: CloudSyncGateway = NoOpCloudSyncGateway
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return MemoryViewModel(
                     memoryRepository = memoryRepository,
                     conversationRepository = conversationRepository,
-                    preferencesRepository = preferencesRepository
+                    preferencesRepository = preferencesRepository,
+                    cloudSyncGateway = cloudSyncGateway
                 ) as T
             }
         }
