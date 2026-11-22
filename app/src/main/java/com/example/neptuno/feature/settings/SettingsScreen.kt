@@ -43,8 +43,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.Button
 import com.example.BuildConfig
 import com.example.R
+import com.example.neptuno.core.model.AiProviderStatus
 import com.example.neptuno.core.model.ThemeMode
 import com.example.neptuno.feature.cloud.CloudAccountSummary
+import com.example.neptuno.feature.cloud.CloudSyncStatus
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +60,7 @@ fun SettingsScreen(
     cloudConversationsCount: Int? = null,
     cloudError: String? = null,
     onSyncNow: (() -> Unit)? = null,
+    onSignIn: (() -> Unit)? = null,
     onSignOut: (() -> Unit)? = null
 ) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
@@ -100,67 +103,126 @@ fun SettingsScreen(
         ) {
             if (cloudSummary != null) {
                 item {
-                    SettingsSectionCard(title = "Cuenta Google y Cloud Firestore") {
+                    SettingsSectionCard(title = "Cuenta Google y Cloud Firestore (Opcional)") {
                         Text(
-                            text = cloudSummary.displayName,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "Estado: ${cloudSummary.syncStatus.label}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = when (cloudSummary.syncStatus) {
+                                CloudSyncStatus.SYNCED -> MaterialTheme.colorScheme.secondary
+                                CloudSyncStatus.AUTH_ERROR,
+                                CloudSyncStatus.PERMISSION_ERROR -> MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
-                        if (!cloudSummary.email.isNullOrBlank()) {
-                            Text(
-                                text = cloudSummary.email,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                         Spacer(modifier = Modifier.height(6.dp))
-                        val countsText = if (cloudMemoriesCount != null && cloudConversationsCount != null) {
-                            "En la nube: $cloudMemoriesCount memorias · $cloudConversationsCount sesiones"
-                        } else {
-                            "Conectando con Cloud Firestore…"
-                        }
-                        Text(
-                            text = countsText,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                        if (!cloudSummary.lastSyncMessage.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(4.dp))
+                        if (!cloudSummary.isAuthenticated) {
                             Text(
-                                text = cloudSummary.lastSyncMessage,
+                                text = "Modo local activo con Room y DataStore. Puedes iniciar sesión con Google para respaldar perfil, memoria y conversaciones en Cloud Firestore.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        }
-                        if (!cloudError.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = cloudError,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (onSyncNow != null) {
-                                OutlinedButton(
-                                    onClick = onSyncNow,
-                                    enabled = !cloudSummary.isSyncing,
+                            if (!cloudSummary.lastSyncMessage.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = cloudSummary.lastSyncMessage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (onSignIn != null) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Button(
+                                    onClick = onSignIn,
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("settings_cloud_sync_button")
+                                        .fillMaxWidth()
+                                        .testTag("settings_sign_in_button")
                                 ) {
-                                    Text(if (cloudSummary.isSyncing) "Sincronizando…" else "Sincronizar")
+                                    Text("Iniciar sesión con Google")
                                 }
                             }
-                            if (onSignOut != null) {
-                                Button(
-                                    onClick = onSignOut,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("settings_sign_out_button")
-                                ) {
-                                    Text("Cerrar sesión")
+                        } else {
+                            Text(
+                                text = cloudSummary.displayName,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (!cloudSummary.email.isNullOrBlank()) {
+                                Text(
+                                    text = cloudSummary.email,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            val countsText = when {
+                                cloudMemoriesCount != null && cloudConversationsCount != null ->
+                                    "En la nube: $cloudMemoriesCount memorias · $cloudConversationsCount sesiones"
+                                cloudSummary.syncStatus == CloudSyncStatus.OFFLINE ||
+                                    cloudSummary.syncStatus == CloudSyncStatus.LOCAL_ONLY ->
+                                    "Usando caché local Room (sin sincronización activa)"
+                                cloudSummary.syncStatus == CloudSyncStatus.AUTH_ERROR ||
+                                    cloudSummary.syncStatus == CloudSyncStatus.PERMISSION_ERROR ||
+                                    cloudSummary.syncStatus == CloudSyncStatus.TIMEOUT ||
+                                    cloudSummary.syncStatus == CloudSyncStatus.PARTIAL_SYNC ->
+                                    "Respaldo en nube pendiente · Caché local Room disponible"
+                                else -> "Consultando Cloud Firestore…"
+                            }
+                            Text(
+                                text = countsText,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            if (!cloudSummary.lastSyncMessage.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = cloudSummary.lastSyncMessage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            listOfNotNull(
+                                cloudSummary.profileError?.let { "Perfil: $it" },
+                                cloudSummary.memoriesError?.let { "Memoria: $it" },
+                                cloudSummary.conversationsError?.let { "Historial: $it" },
+                                cloudError
+                            ).distinct().forEach { errMsg ->
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = errMsg,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (onSyncNow != null) {
+                                    OutlinedButton(
+                                        onClick = onSyncNow,
+                                        enabled = !cloudSummary.isSyncing,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("settings_cloud_sync_button")
+                                    ) {
+                                        Text(
+                                            when {
+                                                cloudSummary.isSyncing -> "Sincronizando…"
+                                                cloudSummary.syncStatus == CloudSyncStatus.PARTIAL_SYNC ||
+                                                    cloudSummary.syncStatus == CloudSyncStatus.TIMEOUT ||
+                                                    cloudSummary.syncStatus == CloudSyncStatus.OFFLINE -> "Reintentar"
+                                                else -> "Sincronizar"
+                                            }
+                                        )
+                                    }
+                                }
+                                if (onSignOut != null) {
+                                    Button(
+                                        onClick = onSignOut,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("settings_sign_out_button")
+                                    ) {
+                                        Text("Cerrar sesión")
+                                    }
                                 }
                             }
                         }
@@ -212,24 +274,26 @@ fun SettingsScreen(
                                         style = MaterialTheme.typography.titleSmall
                                     )
                                     val statusText = when (val st = provider.status) {
-                                        is com.example.neptuno.core.model.AiProviderStatus.Ready ->
+                                        is AiProviderStatus.Ready ->
                                             if (provider.capabilities.supportsBidirectionalAudio) {
                                                 "Estado: Operativo · Audio bidireccional"
                                             } else {
                                                 "Estado: Operativo · Streaming de texto"
                                             }
-                                        is com.example.neptuno.core.model.AiProviderStatus.PendingIntegration ->
+                                        is AiProviderStatus.Configured ->
+                                            "Estado: ${st.statusNote}"
+                                        is AiProviderStatus.PendingIntegration ->
                                             "Estado: Integración pendiente"
-                                        is com.example.neptuno.core.model.AiProviderStatus.Unavailable ->
+                                        is AiProviderStatus.Unavailable ->
                                             "No disponible: ${st.reason}"
                                     }
                                     Text(
                                         text = statusText,
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = if (provider.status is com.example.neptuno.core.model.AiProviderStatus.Ready) {
-                                            MaterialTheme.colorScheme.secondary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = when (provider.status) {
+                                            is AiProviderStatus.Ready -> MaterialTheme.colorScheme.secondary
+                                            is AiProviderStatus.Unavailable -> MaterialTheme.colorScheme.error
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
                                         }
                                     )
                                 }

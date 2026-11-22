@@ -29,6 +29,7 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -52,6 +53,7 @@ import com.example.neptuno.feature.bluetooth.BluetoothViewModel
 import com.example.neptuno.feature.chat.ChatScreen
 import com.example.neptuno.feature.chat.ChatViewModel
 import com.example.neptuno.feature.cloud.CloudAccountSummary
+import com.example.neptuno.feature.cloud.CloudAuthUser
 import com.example.neptuno.feature.cloud.CloudSessionViewModel
 import com.example.neptuno.feature.home.HomeScreen
 import com.example.neptuno.feature.home.HomeViewModel
@@ -90,20 +92,17 @@ private val topLevelDestinations = listOf(
 @Composable
 fun NeptunoAppShell(
     container: NeptunoAppContainer,
-    currentUserId: String,
-    currentUserName: String,
-    currentUserEmail: String?,
+    currentUser: CloudAuthUser?,
+    onOpenSignIn: () -> Unit,
     onSignOut: () -> Unit
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
 
     val cloudSessionViewModel: CloudSessionViewModel = viewModel(
-        key = currentUserId,
+        key = "neptuno_cloud_session",
         factory = CloudSessionViewModel.factory(
-            currentUserId = currentUserId,
-            displayName = currentUserName,
-            email = currentUserEmail,
+            initialUser = currentUser,
             preferencesRepository = container.preferencesRepository,
             memoryRepository = container.memoryRepository,
             conversationRepository = container.conversationRepository,
@@ -111,8 +110,12 @@ fun NeptunoAppShell(
         )
     )
 
+    LaunchedEffect(currentUser) {
+        cloudSessionViewModel.updateAuthUser(currentUser)
+    }
+
     val homeViewModel: HomeViewModel = viewModel(
-        key = currentUserId,
+        key = "neptuno_home",
         factory = HomeViewModel.factory(
             networkMonitor = container.networkMonitor,
             bluetoothController = container.bluetoothController,
@@ -124,7 +127,7 @@ fun NeptunoAppShell(
     )
 
     val chatViewModel: ChatViewModel = viewModel(
-        key = currentUserId,
+        key = "neptuno_chat",
         factory = ChatViewModel.factory(
             conversationRepository = container.conversationRepository,
             memoryRepository = container.memoryRepository,
@@ -140,7 +143,7 @@ fun NeptunoAppShell(
     )
 
     val bluetoothViewModel: BluetoothViewModel = viewModel(
-        key = currentUserId,
+        key = "neptuno_bluetooth",
         factory = BluetoothViewModel.factory(
             context = context,
             bluetoothController = container.bluetoothController,
@@ -150,7 +153,7 @@ fun NeptunoAppShell(
     )
 
     val memoryViewModel: MemoryViewModel = viewModel(
-        key = currentUserId,
+        key = "neptuno_memory",
         factory = MemoryViewModel.factory(
             memoryRepository = container.memoryRepository,
             conversationRepository = container.conversationRepository,
@@ -160,7 +163,7 @@ fun NeptunoAppShell(
     )
 
     val settingsViewModel: SettingsViewModel = viewModel(
-        key = currentUserId,
+        key = "neptuno_settings",
         factory = SettingsViewModel.factory(
             preferencesRepository = container.preferencesRepository,
             aiProviderRegistry = container.aiProviderRegistry,
@@ -173,8 +176,12 @@ fun NeptunoAppShell(
     val cloudConversationsState by cloudSessionViewModel.cloudConversationsState.collectAsStateWithLifecycle()
     val cloudMemoriesCount = (cloudMemoriesState as? CloudUiState.Success)?.data?.size
     val cloudConversationsCount = (cloudConversationsState as? CloudUiState.Success)?.data?.size
-    val cloudError = (cloudMemoriesState as? CloudUiState.Error)?.message
-        ?: (cloudConversationsState as? CloudUiState.Error)?.message
+    val cloudError = if (cloudSummary.isAuthenticated) {
+        (cloudMemoriesState as? CloudUiState.Error)?.message
+            ?: (cloudConversationsState as? CloudUiState.Error)?.message
+    } else {
+        null
+    }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
@@ -226,6 +233,7 @@ fun NeptunoAppShell(
                         cloudConversationsCount = cloudConversationsCount,
                         cloudError = cloudError,
                         onSyncNow = cloudSessionViewModel::syncProfileAndLocalState,
+                        onOpenSignIn = onOpenSignIn,
                         onSignOut = onSignOut
                     )
                 }
@@ -283,6 +291,7 @@ fun NeptunoAppShell(
                         cloudConversationsCount = cloudConversationsCount,
                         cloudError = cloudError,
                         onSyncNow = cloudSessionViewModel::syncProfileAndLocalState,
+                        onOpenSignIn = onOpenSignIn,
                         onSignOut = onSignOut
                     )
                 }
@@ -305,6 +314,7 @@ private fun NeptunoNavHost(
     cloudConversationsCount: Int?,
     cloudError: String?,
     onSyncNow: () -> Unit,
+    onOpenSignIn: () -> Unit,
     onSignOut: () -> Unit
 ) {
     NavHost(
@@ -314,12 +324,14 @@ private fun NeptunoNavHost(
         composable(NeptunoRoutes.HOME) {
             HomeScreen(
                 viewModel = homeViewModel,
+                cloudSummary = cloudSummary,
                 onStartConversation = { navigateToTopLevel(navController, NeptunoRoutes.CHAT) },
                 onOpenBluetooth = { navigateToTopLevel(navController, NeptunoRoutes.BLUETOOTH) },
                 onOpenSettings = { navigateToTopLevel(navController, NeptunoRoutes.SETTINGS) },
                 onOpenPersonalization = { navController.navigate(NeptunoRoutes.PERSONALIZATION) },
                 onOpenTools = { navController.navigate(NeptunoRoutes.TOOLS) },
-                onOpenMemory = { navigateToTopLevel(navController, NeptunoRoutes.MEMORY) }
+                onOpenMemory = { navigateToTopLevel(navController, NeptunoRoutes.MEMORY) },
+                onOpenSignIn = onOpenSignIn
             )
         }
         composable(NeptunoRoutes.CHAT) {
@@ -347,6 +359,7 @@ private fun NeptunoNavHost(
                 cloudConversationsCount = cloudConversationsCount,
                 cloudError = cloudError,
                 onSyncNow = onSyncNow,
+                onSignIn = onOpenSignIn,
                 onSignOut = onSignOut
             )
         }

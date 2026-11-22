@@ -1,5 +1,6 @@
 package com.example.neptuno.auth
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.Button
@@ -26,11 +28,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,32 +57,23 @@ import com.example.neptuno.core.model.AvatarStyle
 import com.example.neptuno.feature.avatar.NeptunoAvatar
 import com.example.ui.theme.ElectricBlue
 
+/**
+ * Pantalla opcional de cuenta Google y sincronización Cloud Firestore.
+ * Nunca bloquea el acceso a Neptuno: el usuario puede volver o continuar en modo local en cualquier momento.
+ */
 @Composable
 fun AuthScreen(
-    onAuthSuccess: () -> Unit
+    onAuthSuccess: () -> Unit,
+    onContinueLocal: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
 
-    var isCheckingSession by remember { mutableStateOf(true) }
     var isSigningIn by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        attemptAutoSignIn(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = {
-                isCheckingSession = false
-                onAuthSuccess()
-            },
-            onUnauthenticated = {
-                isCheckingSession = false
-            },
-            scope = scope
-        )
-    }
+    BackHandler(onBack = onContinueLocal)
 
     val primaryGlow = MaterialTheme.colorScheme.primary
     val secondaryGlow = MaterialTheme.colorScheme.secondary
@@ -108,6 +102,20 @@ fun AuthScreen(
             .testTag("auth_screen"),
         contentAlignment = Alignment.Center
     ) {
+        IconButton(
+            onClick = onContinueLocal,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(12.dp)
+                .testTag("auth_back_button")
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.action_back),
+                tint = MaterialTheme.colorScheme.onBackground
+            )
+        }
+
         Card(
             shape = MaterialTheme.shapes.extraLarge,
             colors = CardDefaults.cardColors(
@@ -127,9 +135,9 @@ fun AuthScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 NeptunoAvatar(
-                    state = if (isSigningIn || isCheckingSession) AssistantState.PROCESSING else AssistantState.IDLE,
+                    state = if (isSigningIn) AssistantState.PROCESSING else AssistantState.IDLE,
                     style = AvatarStyle.ABYSSAL_CORE,
-                    size = 156.dp
+                    size = 148.dp
                 )
 
                 Text(
@@ -139,7 +147,7 @@ fun AuthScreen(
                 )
 
                 Text(
-                    text = "Asistente personal con voz, memoria privada y sincronización en Cloud Firestore.",
+                    text = "Cuenta opcional para respaldar memoria y conversaciones en Cloud Firestore.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -163,7 +171,7 @@ fun AuthScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Tus conversaciones y recuerdos autorizados quedan aislados por cuenta en Firestore.",
+                            text = "Tus datos locales en Room siguen funcionando incluso sin cuenta Google.",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -187,7 +195,6 @@ fun AuthScreen(
                     }
                 }
 
-                val loading = isCheckingSession || isSigningIn
                 Button(
                     onClick = {
                         errorMessage = null
@@ -209,7 +216,7 @@ fun AuthScreen(
                             }
                         )
                     },
-                    enabled = !loading,
+                    enabled = !isSigningIn,
                     shape = MaterialTheme.shapes.large,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ElectricBlue,
@@ -220,7 +227,7 @@ fun AuthScreen(
                         .height(54.dp)
                         .testTag("google_sign_in_button")
                 ) {
-                    if (loading) {
+                    if (isSigningIn) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(22.dp),
                             color = Color(0xFF040D1A),
@@ -228,7 +235,7 @@ fun AuthScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = if (isCheckingSession) "Verificando sesión…" else "Conectando…",
+                            text = "Conectando…",
                             style = MaterialTheme.typography.labelLarge
                         )
                     } else {
@@ -243,6 +250,23 @@ fun AuthScreen(
                             style = MaterialTheme.typography.labelLarge
                         )
                     }
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        isSigningIn = false
+                        onContinueLocal()
+                    },
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("auth_continue_local_button")
+                ) {
+                    Text(
+                        text = "Continuar en modo local",
+                        style = MaterialTheme.typography.labelLarge
+                    )
                 }
             }
         }

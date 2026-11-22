@@ -8,6 +8,9 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 private const val TAG = "AppCheckInit"
 
@@ -16,8 +19,25 @@ private const val DEBUG_STORE_PREFIX = "com.google.firebase.appcheck.debug.store
 private const val DEBUG_SECRET_KEY = "com.google.firebase.appcheck.debug.DEBUG_SECRET"
 private const val RECAPTCHA_SITE_KEY_RES = "recaptcha_site_key"
 
+data class AppCheckDiagnosticState(
+    val isInitialized: Boolean = false,
+    val providerType: String = "Sin inicializar",
+    val detail: String = "App Check no configurado todavía",
+    val error: String? = null
+)
+
+object AppCheckStatusHolder {
+    private val _state = MutableStateFlow(AppCheckDiagnosticState())
+    val state: StateFlow<AppCheckDiagnosticState> = _state.asStateFlow()
+
+    internal fun update(newState: AppCheckDiagnosticState) {
+        _state.value = newState
+    }
+}
+
 /**
  * Configura Firebase App Check antes de inicializar UI, ViewModels o llamadas a Firebase AI Logic.
+ * No desactiva App Check; registra diagnóstico claro si falla el proveedor en debug o release.
  */
 fun configureAppCheck(context: Context, intent: Intent?) {
     try {
@@ -44,6 +64,17 @@ fun configureAppCheck(context: Context, intent: Intent?) {
             FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
                 DebugAppCheckProviderFactory.getInstance()
             )
+            AppCheckStatusHolder.update(
+                AppCheckDiagnosticState(
+                    isInitialized = true,
+                    providerType = "DebugAppCheckProviderFactory",
+                    detail = if (!debugToken.isNullOrEmpty()) {
+                        "App Check debug activo con token de sesión"
+                    } else {
+                        "App Check debug activo (token automático)"
+                    }
+                )
+            )
             Log.d(TAG, "DebugAppCheckProviderFactory installed.")
         } else {
             val resId = context.resources.getIdentifier(
@@ -57,15 +88,48 @@ fun configureAppCheck(context: Context, intent: Intent?) {
                     FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
                         RecaptchaAppCheckProviderFactory.getInstance(siteKey)
                     )
+                    AppCheckStatusHolder.update(
+                        AppCheckDiagnosticState(
+                            isInitialized = true,
+                            providerType = "RecaptchaAppCheckProviderFactory",
+                            detail = "App Check reCAPTCHA Enterprise configurado"
+                        )
+                    )
                     Log.d(TAG, "RecaptchaAppCheckProviderFactory installed.")
                 } else {
-                    Log.e(TAG, "recaptcha_site_key resource string is blank.")
+                    val msg = "recaptcha_site_key resource string is blank."
+                    Log.e(TAG, msg)
+                    AppCheckStatusHolder.update(
+                        AppCheckDiagnosticState(
+                            isInitialized = false,
+                            providerType = "RecaptchaAppCheckProviderFactory",
+                            detail = "Falta clave reCAPTCHA para App Check",
+                            error = msg
+                        )
+                    )
                 }
             } else {
-                Log.e(TAG, "recaptcha_site_key string resource not found in package.")
+                val msg = "recaptcha_site_key string resource not found in package."
+                Log.e(TAG, msg)
+                AppCheckStatusHolder.update(
+                    AppCheckDiagnosticState(
+                        isInitialized = false,
+                        providerType = "RecaptchaAppCheckProviderFactory",
+                        detail = "Recurso recaptcha_site_key ausente",
+                        error = msg
+                    )
+                )
             }
         }
     } catch (e: Exception) {
         Log.e(TAG, "Failed to initialize Firebase App Check", e)
+        AppCheckStatusHolder.update(
+            AppCheckDiagnosticState(
+                isInitialized = false,
+                providerType = if (BuildConfig.DEBUG) "Debug" else "Release",
+                detail = "Error inicializando Firebase App Check",
+                error = e.localizedMessage ?: e.javaClass.simpleName
+            )
+        )
     }
 }

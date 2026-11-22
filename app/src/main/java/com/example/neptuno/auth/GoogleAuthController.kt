@@ -8,6 +8,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
 import com.example.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
@@ -31,6 +32,7 @@ import kotlinx.coroutines.withContext
 private const val AUTH_TAG = "Auth"
 
 internal fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
+    trySend(currentUser)
     val listener = FirebaseAuth.AuthStateListener { auth ->
         trySend(auth.currentUser)
     }
@@ -115,16 +117,23 @@ fun onGoogleSignInClicked(
                 Firebase.auth.signInWithCredential(GoogleAuthProvider.getCredential(token, null)).await()
                 onAuthSuccess()
             } else {
-                onAuthError("Tipo de credencial inesperado.")
+                onAuthError("Tipo de credencial inesperado. Puedes continuar en modo local.")
             }
         } catch (e: GetCredentialCancellationException) {
             Log.w(AUTH_TAG, "Google Sign-In cancelled or dismissed: ${e.message}", e)
             onAuthCancelled()
+        } catch (e: NoCredentialException) {
+            Log.w(AUTH_TAG, "No Google credentials available on device: ${e.message}", e)
+            onAuthError("No hay credenciales de Google disponibles en este dispositivo. Puedes usar Neptuno en modo local.")
         } catch (e: CancellationException) {
+            onAuthCancelled()
             throw e
         } catch (e: Exception) {
             Log.e(AUTH_TAG, "Google Sign-In failed", e)
-            onAuthError(e.localizedMessage ?: "No se pudo iniciar sesión con Google.")
+            onAuthError(
+                e.localizedMessage
+                    ?: "No se pudo iniciar sesión con Google. Puedes seguir usando Neptuno en modo local."
+            )
         }
     }
 }
@@ -141,7 +150,7 @@ fun signOutWithCredentialClear(
             } catch (e: Exception) {
                 Log.w(AUTH_TAG, "Failed to clear credential state: ${e.message}")
             } finally {
-                Firebase.auth.signOut()
+                runCatching { Firebase.auth.signOut() }
                 onSignOutComplete()
             }
         }

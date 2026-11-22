@@ -306,14 +306,20 @@ class ChatViewModel(
 
                 if (effectiveOffline &&
                     !provider.capabilities.supportsOfflineExecution &&
-                    provider.status is AiProviderStatus.Ready
+                    provider.status !is AiProviderStatus.PendingIntegration
                 ) {
+                    val offlineReason = when {
+                        prefs.offlineMode -> "Modo sin conexión activo."
+                        network.isConnectedWithoutInternet ->
+                            "La red (${network.transportLabel}) está conectada sin acceso validado a Internet."
+                        else -> "Sin conexión a Internet."
+                    }
                     appendMessage(
                         persist = prefs.persistConversationHistory,
                         message = ChatMessage(
                             conversationId = conversationId,
                             sender = MessageSender.SYSTEM_NOTICE,
-                            content = "Sin conexión a Internet o modo sin conexión activo. El mensaje se guardó localmente, pero ${provider.displayName} requiere conexión.",
+                            content = "$offlineReason El mensaje se guardó localmente en Room, pero ${provider.displayName} requiere conexión.",
                             providerId = provider.id
                         )
                     )

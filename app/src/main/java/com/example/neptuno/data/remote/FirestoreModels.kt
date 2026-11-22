@@ -9,6 +9,7 @@ import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.ServerTimestamp
 
 sealed interface CloudUiState<out T> {
+    data object Idle : CloudUiState<Nothing>
     data object Loading : CloudUiState<Nothing>
     data class Success<T>(val data: T) : CloudUiState<T>
     data class Error(val message: String) : CloudUiState<Nothing>

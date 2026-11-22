@@ -29,6 +29,9 @@ interface ConversationDao {
     )
     fun observeAllConversations(): Flow<List<ConversationWithCount>>
 
+    @Query("SELECT * FROM conversations ORDER BY updatedAtMillis DESC")
+    suspend fun getAllConversationsOnce(): List<ConversationEntity>
+
     @Query("SELECT * FROM conversations ORDER BY updatedAtMillis DESC LIMIT 1")
     suspend fun getLatestConversation(): ConversationEntity?
 
@@ -57,6 +60,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY timestampMillis ASC, id ASC")
     fun observeMessagesForConversation(conversationId: Long): Flow<List<MessageEntity>>
 
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY timestampMillis ASC, id ASC")
+    suspend fun getMessagesForConversationOnce(conversationId: Long): List<MessageEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(entity: MessageEntity): Long
 
@@ -69,6 +75,9 @@ interface MemoryDao {
 
     @Query("SELECT * FROM memory_entries ORDER BY updatedAtMillis DESC")
     fun observeAllMemories(): Flow<List<MemoryEntity>>
+
+    @Query("SELECT * FROM memory_entries ORDER BY updatedAtMillis DESC")
+    suspend fun getAllMemoriesOnce(): List<MemoryEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMemory(entity: MemoryEntity): Long

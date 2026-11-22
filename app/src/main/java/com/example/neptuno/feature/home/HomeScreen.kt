@@ -21,7 +21,9 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.BluetoothDisabled
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.Face
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Settings
@@ -50,21 +52,26 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
+import com.example.neptuno.core.model.AiProviderStatus
 import com.example.neptuno.core.model.AssistantState
 import com.example.neptuno.core.model.BluetoothAdapterState
 import com.example.neptuno.feature.avatar.NeptunoAvatar
+import com.example.neptuno.feature.cloud.CloudAccountSummary
+import com.example.neptuno.feature.cloud.CloudSyncStatus
 import com.example.ui.theme.BioluminescentTurquoise
 import com.example.ui.theme.ElectricBlue
 
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
+    cloudSummary: CloudAccountSummary = CloudAccountSummary(),
     onStartConversation: () -> Unit,
     onOpenBluetooth: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenPersonalization: () -> Unit,
     onOpenTools: () -> Unit,
-    onOpenMemory: () -> Unit
+    onOpenMemory: () -> Unit,
+    onOpenSignIn: () -> Unit = onOpenSettings
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -153,23 +160,66 @@ fun HomeScreen(
                 }
             }
 
-            // Píldoras de estado de conexión a Internet y motor IA
+            // Píldoras de estado de conexión a Internet y nube opcional
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val isOnline = state.networkStatus.isConnected && !state.offlineModeForced
                     StatusPill(
                         icon = if (isOnline) Icons.Outlined.Wifi else Icons.Outlined.CloudOff,
-                        label = when {
-                            state.offlineModeForced -> stringResource(R.string.home_network_forced_offline)
-                            state.networkStatus.isConnected -> "Internet · ${state.networkStatus.transportLabel}"
-                            else -> stringResource(R.string.home_network_offline)
-                        },
+                        label = state.networkStatus.describeWithOfflineMode(state.offlineModeForced),
                         highlighted = isOnline,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("home_network_status_pill")
                     )
+
+                    val cloudHighlighted = cloudSummary.isAuthenticated &&
+                        cloudSummary.syncStatus == CloudSyncStatus.SYNCED
+                    val cloudIcon = when {
+                        !cloudSummary.isAuthenticated -> Icons.Outlined.CloudOff
+                        cloudSummary.isSyncing -> Icons.Outlined.CloudSync
+                        cloudSummary.syncStatus == CloudSyncStatus.SYNCED -> Icons.Outlined.CloudDone
+                        else -> Icons.Outlined.CloudSync
+                    }
+                    Surface(
+                        onClick = if (cloudSummary.isAuthenticated) onOpenSettings else onOpenSignIn,
+                        shape = MaterialTheme.shapes.medium,
+                        color = if (cloudHighlighted) {
+                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        },
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("home_cloud_status_pill")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = cloudIcon,
+                                contentDescription = null,
+                                tint = if (cloudHighlighted) {
+                                    MaterialTheme.colorScheme.secondary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (cloudSummary.isAuthenticated) {
+                                    "Cloud: ${cloudSummary.syncStatus.label}"
+                                } else {
+                                    "${cloudSummary.syncStatus.label} · Modo local (pulsa para cuenta opcional)"
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                 }
             }
 
@@ -224,16 +274,21 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = if (state.isProviderReady) {
-                                "${stringResource(R.string.home_provider_ready)}: ${state.activeProviderName}"
-                            } else {
-                                "${stringResource(R.string.home_provider_pending)} (${state.activeProviderName})"
+                            text = when (val st = state.providerStatus) {
+                                is AiProviderStatus.Ready ->
+                                    "${stringResource(R.string.home_provider_ready)}: ${state.activeProviderName}"
+                                is AiProviderStatus.Configured ->
+                                    "${state.activeProviderName} · Sin verificación en esta sesión"
+                                is AiProviderStatus.Unavailable ->
+                                    "${state.activeProviderName}: ${st.reason} · Modo local activo"
+                                is AiProviderStatus.PendingIntegration ->
+                                    "${stringResource(R.string.home_provider_pending)} (${state.activeProviderName})"
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (state.isProviderReady) {
-                                MaterialTheme.colorScheme.secondary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                            color = when (state.providerStatus) {
+                                is AiProviderStatus.Ready -> MaterialTheme.colorScheme.secondary
+                                is AiProviderStatus.Unavailable -> MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
                             },
                             textAlign = TextAlign.Center
                         )

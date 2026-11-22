@@ -175,6 +175,7 @@ data class ToolDescriptor(
 
 sealed interface AiProviderStatus {
     data object PendingIntegration : AiProviderStatus
+    data class Configured(val statusNote: String) : AiProviderStatus
     data object Ready : AiProviderStatus
     data class Unavailable(val reason: String) : AiProviderStatus
 }

@@ -6,9 +6,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.neptuno.ai.gemini.configureAppCheck
@@ -19,6 +21,7 @@ import com.example.neptuno.auth.authStateFlow
 import com.example.neptuno.auth.signOutWithCredentialClear
 import com.example.neptuno.core.model.ThemeMode
 import com.example.neptuno.core.model.UserPreferences
+import com.example.neptuno.feature.cloud.CloudAuthUser
 import com.example.ui.theme.NeptunoTheme
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
@@ -41,31 +44,41 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
             }
 
-            val auth = remember { Firebase.auth }
-            val currentUser by auth.authStateFlow()
-                .collectAsStateWithLifecycle(initialValue = auth.currentUser)
+            val auth = remember { runCatching { Firebase.auth }.getOrNull() }
+            val currentFirebaseUser by remember(auth) {
+                auth?.authStateFlow() ?: kotlinx.coroutines.flow.flowOf(null)
+            }.collectAsStateWithLifecycle(initialValue = auth?.currentUser)
+
+            val cloudUser = currentFirebaseUser?.let { firebaseUser ->
+                CloudAuthUser(
+                    userId = firebaseUser.uid,
+                    displayName = firebaseUser.displayName ?: "Usuario Neptuno",
+                    email = firebaseUser.email
+                )
+            }
+
             val credentialManager = remember(this) { CredentialManager.create(this) }
             val appScope = rememberCoroutineScope()
+            var showOptionalAuthScreen by rememberSaveable { mutableStateOf(false) }
 
             NeptunoTheme(darkTheme = darkTheme) {
-                val user = currentUser
-                if (user == null) {
-                    AuthScreen(onAuthSuccess = {})
+                if (showOptionalAuthScreen) {
+                    AuthScreen(
+                        onAuthSuccess = { showOptionalAuthScreen = false },
+                        onContinueLocal = { showOptionalAuthScreen = false }
+                    )
                 } else {
-                    key(user.uid) {
-                        NeptunoAppShell(
-                            container = container,
-                            currentUserId = user.uid,
-                            currentUserName = user.displayName ?: "Usuario Neptuno",
-                            currentUserEmail = user.email,
-                            onSignOut = {
-                                signOutWithCredentialClear(
-                                    credentialManager = credentialManager,
-                                    scope = appScope
-                                )
-                            }
-                        )
-                    }
+                    NeptunoAppShell(
+                        container = container,
+                        currentUser = cloudUser,
+                        onOpenSignIn = { showOptionalAuthScreen = true },
+                        onSignOut = {
+                            signOutWithCredentialClear(
+                                credentialManager = credentialManager,
+                                scope = appScope
+                            )
+                        }
+                    )
                 }
             }
         }

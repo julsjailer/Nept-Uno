@@ -21,10 +21,58 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
+interface CloudRemoteStore {
+    fun observeUserProfile(userId: String): Flow<FirestoreUserProfile?>
+    fun observeMemories(userId: String): Flow<List<FirestoreMemoryEntry>>
+    fun observeConversations(userId: String): Flow<List<FirestoreConversation>>
+    fun observeMessages(userId: String, conversationDocId: String): Flow<List<FirestoreChatMessage>>
+
+    suspend fun upsertUserProfile(
+        userId: String,
+        displayName: String,
+        email: String?,
+        languageCode: String,
+        personalityId: String,
+        avatarStyleId: String
+    ): Result<Unit>
+
+    suspend fun saveMemory(
+        userId: String,
+        title: String,
+        content: String,
+        category: MemoryCategory,
+        localId: Long? = null
+    ): Result<String>
+
+    suspend fun deleteMemory(userId: String, memoryDocId: String): Result<Unit>
+    suspend fun clearAllMemories(userId: String): Result<Unit>
+
+    suspend fun ensureCloudConversation(
+        userId: String,
+        localConversationId: Long,
+        title: String
+    ): Result<String>
+
+    suspend fun appendCloudMessage(
+        userId: String,
+        localConversationId: Long,
+        conversationTitle: String,
+        sender: MessageSender,
+        content: String,
+        providerId: String?,
+        interrupted: Boolean,
+        localMessageId: Long? = null
+    ): Result<Unit>
+
+    suspend fun deleteCloudConversation(userId: String, conversationDocId: String): Result<Unit>
+    suspend fun clearAllCloudConversations(userId: String): Result<Unit>
+}
+
 class NeptunoFirestoreRepository(
     private val db: FirebaseFirestore,
     private val auth: FirebaseAuth = Firebase.auth
-) {
+) : CloudRemoteStore {
+
     constructor(context: Context) : this(
         db = FirebaseFirestore.getInstance(
             context.applicationContext.getString(R.string.firestore_database_id)
@@ -39,7 +87,7 @@ class NeptunoFirestoreRepository(
         return uid
     }
 
-    fun observeUserProfile(userId: String): Flow<FirestoreUserProfile?> = flow {
+    override fun observeUserProfile(userId: String): Flow<FirestoreUserProfile?> = flow {
         val uid = requireUserId()
         check(uid == userId) { "Signed-in user mismatch; refusing cross-user profile read." }
         val docRef = db.collection("users").document(uid)
@@ -62,7 +110,7 @@ class NeptunoFirestoreRepository(
         )
     }
 
-    fun observeMemories(userId: String): Flow<List<FirestoreMemoryEntry>> = flow {
+    override fun observeMemories(userId: String): Flow<List<FirestoreMemoryEntry>> = flow {
         val uid = requireUserId()
         check(uid == userId) { "Signed-in user mismatch; refusing cross-user memories read." }
         val colRef = db.collection("users").document(uid).collection("memories")
@@ -86,7 +134,7 @@ class NeptunoFirestoreRepository(
         )
     }
 
-    fun observeConversations(userId: String): Flow<List<FirestoreConversation>> = flow {
+    override fun observeConversations(userId: String): Flow<List<FirestoreConversation>> = flow {
         val uid = requireUserId()
         check(uid == userId) { "Signed-in user mismatch; refusing cross-user conversations read." }
         val colRef = db.collection("users").document(uid).collection("conversations")
@@ -110,7 +158,7 @@ class NeptunoFirestoreRepository(
         )
     }
 
-    fun observeMessages(userId: String, conversationDocId: String): Flow<List<FirestoreChatMessage>> = flow {
+    override fun observeMessages(userId: String, conversationDocId: String): Flow<List<FirestoreChatMessage>> = flow {
         val uid = requireUserId()
         check(uid == userId) { "Signed-in user mismatch; refusing cross-user messages read." }
         require(isValidFirestoreId(conversationDocId)) { "Invalid conversation document ID." }
@@ -137,7 +185,7 @@ class NeptunoFirestoreRepository(
         )
     }
 
-    suspend fun upsertUserProfile(
+    override suspend fun upsertUserProfile(
         userId: String,
         displayName: String,
         email: String?,
@@ -189,12 +237,12 @@ class NeptunoFirestoreRepository(
         }
     }
 
-    suspend fun saveMemory(
+    override suspend fun saveMemory(
         userId: String,
         title: String,
         content: String,
         category: MemoryCategory,
-        localId: Long? = null
+        localId: Long?
     ): Result<String> {
         val cleanTitle = title.trim().take(120)
         val cleanContent = content.trim().take(2000)
@@ -242,7 +290,7 @@ class NeptunoFirestoreRepository(
         }
     }
 
-    suspend fun deleteMemory(userId: String, memoryDocId: String): Result<Unit> {
+    override suspend fun deleteMemory(userId: String, memoryDocId: String): Result<Unit> {
         val docPath = "users/$userId/memories/$memoryDocId"
         return try {
             val uid = requireUserId()
@@ -261,7 +309,7 @@ class NeptunoFirestoreRepository(
         }
     }
 
-    suspend fun clearAllMemories(userId: String): Result<Unit> {
+    override suspend fun clearAllMemories(userId: String): Result<Unit> {
         val colPath = "users/$userId/memories"
         return try {
             val uid = requireUserId()
@@ -282,7 +330,7 @@ class NeptunoFirestoreRepository(
         }
     }
 
-    suspend fun ensureCloudConversation(
+    override suspend fun ensureCloudConversation(
         userId: String,
         localConversationId: Long,
         title: String
@@ -323,14 +371,15 @@ class NeptunoFirestoreRepository(
         }
     }
 
-    suspend fun appendCloudMessage(
+    override suspend fun appendCloudMessage(
         userId: String,
         localConversationId: Long,
         conversationTitle: String,
         sender: MessageSender,
         content: String,
         providerId: String?,
-        interrupted: Boolean
+        interrupted: Boolean,
+        localMessageId: Long?
     ): Result<Unit> {
         val convDocId = "conv_$localConversationId"
         val docPath = "users/$userId/conversations/$convDocId/messages"
@@ -344,9 +393,19 @@ class NeptunoFirestoreRepository(
 
             val convRef = db.collection("users").document(uid)
                 .collection("conversations").document(convDocId)
-            val convSnap = convRef.get().await()
-            val msgRef = convRef.collection("messages").document()
+            val deterministicMsgId = localMessageId?.takeIf { it > 0L }?.let { "local_msg_$it" }
+            val msgRef = if (deterministicMsgId != null) {
+                convRef.collection("messages").document(deterministicMsgId)
+            } else {
+                convRef.collection("messages").document()
+            }
 
+            // Idempotencia: las reglas bloquean update en mensajes; si ya existe, no duplicar ni incrementar.
+            if (deterministicMsgId != null && msgRef.get().await().exists()) {
+                return Result.success(Unit)
+            }
+
+            val convSnap = convRef.get().await()
             val msgPayload = buildMap<String, Any> {
                 put("userId", uid)
                 put("conversationId", convDocId)
@@ -390,7 +449,7 @@ class NeptunoFirestoreRepository(
         }
     }
 
-    suspend fun deleteCloudConversation(userId: String, conversationDocId: String): Result<Unit> {
+    override suspend fun deleteCloudConversation(userId: String, conversationDocId: String): Result<Unit> {
         val docPath = "users/$userId/conversations/$conversationDocId"
         return try {
             val uid = requireUserId()
@@ -415,7 +474,7 @@ class NeptunoFirestoreRepository(
         }
     }
 
-    suspend fun clearAllCloudConversations(userId: String): Result<Unit> {
+    override suspend fun clearAllCloudConversations(userId: String): Result<Unit> {
         val colPath = "users/$userId/conversations"
         return try {
             val uid = requireUserId()

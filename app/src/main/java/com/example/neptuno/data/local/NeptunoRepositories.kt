@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.map
 interface ConversationRepository {
     fun observeConversations(): Flow<List<ConversationSession>>
     fun observeMessages(conversationId: Long): Flow<List<ChatMessage>>
+    suspend fun getConversationsSnapshot(): List<ConversationSession>
+    suspend fun getMessagesSnapshot(conversationId: Long): List<ChatMessage>
     suspend fun getOrCreateActiveConversation(defaultTitle: String): Long
     suspend fun ensureConversationExists(conversationId: Long?, defaultTitle: String): Long
     suspend fun createConversation(title: String): Long
@@ -22,6 +24,7 @@ interface ConversationRepository {
 
 interface MemoryRepository {
     fun observeMemories(): Flow<List<MemoryEntry>>
+    suspend fun getMemoriesSnapshot(): List<MemoryEntry>
     suspend fun saveMemory(entry: MemoryEntry): Long
     suspend fun deleteMemory(id: Long)
     suspend fun clearAllMemories()
@@ -60,6 +63,32 @@ class LocalConversationRepository(
                     isInterrupted = entity.isInterrupted
                 )
             }
+        }
+    }
+
+    override suspend fun getConversationsSnapshot(): List<ConversationSession> {
+        return conversationDao.getAllConversationsOnce().map { item ->
+            ConversationSession(
+                id = item.id,
+                title = item.title,
+                createdAtMillis = item.createdAtMillis,
+                updatedAtMillis = item.updatedAtMillis
+            )
+        }
+    }
+
+    override suspend fun getMessagesSnapshot(conversationId: Long): List<ChatMessage> {
+        return messageDao.getMessagesForConversationOnce(conversationId).map { entity ->
+            ChatMessage(
+                id = entity.id,
+                conversationId = entity.conversationId,
+                sender = runCatching { MessageSender.valueOf(entity.sender) }
+                    .getOrDefault(MessageSender.SYSTEM_NOTICE),
+                content = entity.content,
+                timestampMillis = entity.timestampMillis,
+                providerId = entity.providerId,
+                isInterrupted = entity.isInterrupted
+            )
         }
     }
 
@@ -137,6 +166,21 @@ class LocalMemoryRepository(
                     updatedAtMillis = entity.updatedAtMillis
                 )
             }
+        }
+    }
+
+    override suspend fun getMemoriesSnapshot(): List<MemoryEntry> {
+        return memoryDao.getAllMemoriesOnce().map { entity ->
+            MemoryEntry(
+                id = entity.id,
+                title = entity.title,
+                content = entity.content,
+                category = runCatching { MemoryCategory.valueOf(entity.category) }
+                    .getOrDefault(MemoryCategory.GENERAL),
+                authorizedByUser = entity.authorizedByUser,
+                createdAtMillis = entity.createdAtMillis,
+                updatedAtMillis = entity.updatedAtMillis
+            )
         }
     }
 

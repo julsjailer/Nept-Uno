@@ -16,20 +16,60 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withTimeout
 
 private const val TAG = "GeminiFirebaseProvider"
 private const val DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 private const val STREAM_TIMEOUT_MS = 60_000L
 
+enum class GeminiErrorCategory {
+    APP_CHECK,
+    AUTH,
+    CONFIG,
+    QUOTA,
+    NETWORK,
+    UNKNOWN
+}
+
+data class ClassifiedGeminiError(
+    val category: GeminiErrorCategory,
+    val shortStatus: String,
+    val userMessage: String
+)
+
+fun interface GeminiStreamClient {
+    fun generateTextStream(
+        modelName: String,
+        systemInstruction: String,
+        contents: List<Content>
+    ): Flow<String>
+}
+
+private object FirebaseAiGeminiStreamClient : GeminiStreamClient {
+    override fun generateTextStream(
+        modelName: String,
+        systemInstruction: String,
+        contents: List<Content>
+    ): Flow<String> {
+        val model = Firebase.ai.generativeModel(
+            modelName = modelName,
+            systemInstruction = content { text(systemInstruction) }
+        )
+        return model.generateContentStream(contents).mapNotNull { chunk -> chunk.text }
+    }
+}
+
 /**
  * Proveedor online oficial de Gemini mediante Firebase AI Logic (`Firebase.ai`).
- * Implementa streaming de texto (`generateContentStream`), respetando:
- * - Cero API keys privadas en el cliente (autenticado vía Firebase App Check).
- * - Diferenciación clara respecto a Gemini Live (audio bidireccional aún pendiente).
- * - Cancelación cooperativa para barge-in y timeouts realistas de 60s.
+ * - No declara estado Ready ("Operativo") hasta comprobar al menos una respuesta real de Gemini.
+ * - Distingue errores de App Check, autenticación, configuración, cuota y red sin bloquear funciones locales.
+ * - Mantiene cancelación cooperativa para barge-in y timeout de 60 s.
  */
-class GeminiFirebaseProvider : AiProvider {
+class GeminiFirebaseProvider(
+    private val streamClient: GeminiStreamClient = FirebaseAiGeminiStreamClient,
+    private val streamTimeoutMs: Long = STREAM_TIMEOUT_MS
+) : AiProvider {
 
     override val id: String = "gemini_firebase"
     override val displayName: String = "Gemini (Texto y Streaming)"
@@ -39,7 +79,14 @@ class GeminiFirebaseProvider : AiProvider {
         supportsOfflineExecution = false,
         supportsToolCalling = false
     )
-    override val status: AiProviderStatus = AiProviderStatus.Ready
+
+    @Volatile
+    private var currentStatus: AiProviderStatus = AiProviderStatus.Configured(
+        statusNote = "Configurado vía Firebase AI Logic · Sin respuesta verificada en esta sesión"
+    )
+
+    override val status: AiProviderStatus
+        get() = currentStatus
 
     @Volatile
     private var interruptedByUser: Boolean = false
@@ -47,21 +94,19 @@ class GeminiFirebaseProvider : AiProvider {
     override fun streamResponse(request: AiRequest): Flow<AiResponseEvent> = flow {
         interruptedByUser = false
         val systemText = buildSystemInstruction(request)
-        val model = Firebase.ai.generativeModel(
-            modelName = DEFAULT_GEMINI_MODEL,
-            systemInstruction = content { text(systemText) }
-        )
-
         val promptContents = buildConversationContents(request)
         var receivedAnyChunk = false
 
         try {
-            withTimeout(STREAM_TIMEOUT_MS) {
-                model.generateContentStream(promptContents).collect { chunk ->
+            withTimeout(streamTimeoutMs) {
+                streamClient.generateTextStream(
+                    modelName = DEFAULT_GEMINI_MODEL,
+                    systemInstruction = systemText,
+                    contents = promptContents
+                ).collect { delta ->
                     if (interruptedByUser) {
                         throw CancellationException("Interrupción solicitada por el usuario.")
                     }
-                    val delta = chunk.text.orEmpty()
                     if (delta.isNotEmpty()) {
                         receivedAnyChunk = true
                         emit(AiResponseEvent.TextDelta(delta))
@@ -72,19 +117,22 @@ class GeminiFirebaseProvider : AiProvider {
             if (interruptedByUser) {
                 emit(AiResponseEvent.Interrupted("Respuesta detenida por el usuario."))
             } else if (!receivedAnyChunk) {
+                currentStatus = AiProviderStatus.Unavailable("Respuesta vacía de Gemini")
                 emit(
                     AiResponseEvent.Failure(
-                        "Gemini devolvió una respuesta vacía o incompleta. Intenta reformular tu mensaje."
+                        "Gemini devolvió una respuesta vacía o incompleta. Tus datos locales siguen disponibles; intenta reformular tu mensaje."
                     )
                 )
             } else {
+                currentStatus = AiProviderStatus.Ready
                 emit(AiResponseEvent.Completed)
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Gemini streaming timed out", e)
+            currentStatus = AiProviderStatus.Unavailable("Tiempo de espera agotado")
             emit(
                 AiResponseEvent.Failure(
-                    "La conexión con Gemini agotó el tiempo de espera (60 s). Verifica tu red e inténtalo de nuevo."
+                    "La conexión con Gemini agotó el tiempo de espera. Neptuno sigue operando localmente con Room, voz offline y memoria."
                 )
             )
         } catch (e: CancellationException) {
@@ -94,7 +142,9 @@ class GeminiFirebaseProvider : AiProvider {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Gemini streaming failed", e)
-            emit(AiResponseEvent.Failure(mapProviderException(e)))
+            val classified = classifyProviderException(e)
+            currentStatus = AiProviderStatus.Unavailable(classified.shortStatus)
+            emit(AiResponseEvent.Failure(classified.userMessage))
         }
     }
 
@@ -161,21 +211,74 @@ class GeminiFirebaseProvider : AiProvider {
         return contents
     }
 
-    private fun mapProviderException(e: Exception): String {
-        val raw = e.localizedMessage.orEmpty()
-        return when {
-            raw.contains("403") || raw.contains("App Check", ignoreCase = true) ->
-                "Acceso rechazado por Firebase App Check (HTTP 403). Verifica la configuración de App Check en AI Studio."
-            raw.contains("429") || raw.contains("quota", ignoreCase = true) || raw.contains("rate", ignoreCase = true) ->
-                "Se alcanzó temporalmente el límite de solicitudes de Gemini. Espera un momento antes de reintentar."
-            raw.contains("Unable to resolve host", ignoreCase = true) ||
-                raw.contains("network", ignoreCase = true) ||
-                raw.contains("timeout", ignoreCase = true) ->
-                "Error de red al conectar con Gemini. Comprueba tu conexión a Internet."
-            raw.isNotBlank() ->
-                "Error de Gemini (Firebase AI): $raw"
-            else ->
-                "No se pudo completar la solicitud con Gemini."
+    companion object {
+        fun classifyProviderException(e: Throwable): ClassifiedGeminiError {
+            val raw = generateSequence(e) { it.cause }
+                .mapNotNull { it.localizedMessage ?: it.message }
+                .joinToString(" | ")
+
+            return when {
+                raw.contains("App Check", ignoreCase = true) ||
+                    raw.contains("appcheck", ignoreCase = true) ||
+                    raw.contains("403") -> ClassifiedGeminiError(
+                    category = GeminiErrorCategory.APP_CHECK,
+                    shortStatus = "Error de App Check (HTTP 403)",
+                    userMessage = "Error de Firebase App Check (HTTP 403): la solicitud fue rechazada por seguridad de la app. Puedes seguir usando Neptuno en modo local."
+                )
+
+                raw.contains("401") ||
+                    raw.contains("UNAUTHENTICATED", ignoreCase = true) ||
+                    raw.contains("auth token", ignoreCase = true) ||
+                    raw.contains("credential", ignoreCase = true) -> ClassifiedGeminiError(
+                    category = GeminiErrorCategory.AUTH,
+                    shortStatus = "Error de autenticación",
+                    userMessage = "Error de autenticación al invocar Gemini. Revisa tu sesión o configuración en Firebase sin perder tus datos locales."
+                )
+
+                raw.contains("API key", ignoreCase = true) ||
+                    raw.contains("not enabled", ignoreCase = true) ||
+                    raw.contains("FirebaseApp", ignoreCase = true) ||
+                    raw.contains("model", ignoreCase = true) && raw.contains("not found", ignoreCase = true) ||
+                    raw.contains("400") ||
+                    raw.contains("404") -> ClassifiedGeminiError(
+                    category = GeminiErrorCategory.CONFIG,
+                    shortStatus = "Error de configuración",
+                    userMessage = "Error de configuración de Gemini / Firebase AI Logic ($raw). Neptuno continúa operativo localmente."
+                )
+
+                raw.contains("429") ||
+                    raw.contains("RESOURCE_EXHAUSTED", ignoreCase = true) ||
+                    raw.contains("quota", ignoreCase = true) ||
+                    raw.contains("rate", ignoreCase = true) -> ClassifiedGeminiError(
+                    category = GeminiErrorCategory.QUOTA,
+                    shortStatus = "Cuota de Gemini agotada",
+                    userMessage = "Se alcanzó temporalmente el límite de cuota de Gemini (HTTP 429). Espera unos momentos antes de reintentar."
+                )
+
+                raw.contains("Unable to resolve host", ignoreCase = true) ||
+                    raw.contains("UnknownHost", ignoreCase = true) ||
+                    raw.contains("ConnectException", ignoreCase = true) ||
+                    raw.contains("network", ignoreCase = true) ||
+                    raw.contains("timeout", ignoreCase = true) ||
+                    raw.contains("timed out", ignoreCase = true) ||
+                    raw.contains("UNAVAILABLE", ignoreCase = true) -> ClassifiedGeminiError(
+                    category = GeminiErrorCategory.NETWORK,
+                    shortStatus = "Error de red con Gemini",
+                    userMessage = "Error de red o tiempo de espera al conectar con Gemini. Tus mensajes y memoria local Room permanecen intactos."
+                )
+
+                raw.isNotBlank() -> ClassifiedGeminiError(
+                    category = GeminiErrorCategory.UNKNOWN,
+                    shortStatus = "Error de Gemini",
+                    userMessage = "Error de Gemini (Firebase AI): $raw"
+                )
+
+                else -> ClassifiedGeminiError(
+                    category = GeminiErrorCategory.UNKNOWN,
+                    shortStatus = "Error desconocido de Gemini",
+                    userMessage = "No se pudo completar la solicitud con Gemini. Neptuno sigue disponible localmente."
+                )
+            }
         }
     }
 }
